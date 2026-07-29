@@ -12,8 +12,8 @@ on its own.
 
 - **Add any feed** by URL, or paste a site's homepage — feed autodiscovery
   finds its RSS/Atom link(s) automatically and lets you pick if there's more than one
-- Feeds are fetched automatically every 30 minutes in the background
-  (`pg_cron`), plus an on-demand **Refresh** button
+- Feeds refresh automatically whenever the app loads, plus an on-demand
+  **Refresh** button
 - Click an article to expand it inline (only one open at a time) — read/unread
   tracking synced across devices through your account
 - A searchable feed picker with a distinct auto-generated color per feed, and
@@ -27,7 +27,7 @@ on its own.
 
 - Vanilla JavaScript, HTML, and CSS — no build tooling or framework
 - [Supabase](https://supabase.com) for auth (magic-link email sign-in), Postgres storage, and a Deno Edge Function that fetches/parses feeds
-- `pg_cron` + `pg_net` for scheduled background fetching and cleanup
+- `pg_cron` for the daily storage cleanup job (feed fetching is triggered client-side, not by cron)
 - Self-hosted Martian Mono webfont
 
 ## Setup
@@ -42,18 +42,17 @@ enough — see [Storage design](#storage-design)).
 Open **SQL Editor** in the Supabase dashboard and run each file in
 [`supabase/migrations/`](supabase/migrations) **in order**:
 
-1. `0001_init.sql` — schema, RLS, retention/cap functions, cron jobs
+1. `0001_init.sql` — schema, RLS, retention/cap functions, daily cleanup cron job
 2. `0002_feed_position.sql` — adds feed reordering
 3. `0003_feed_display_name.sql` — adds feed renaming
 
-Before running `0001_init.sql`, edit the bottom
-`cron.schedule('fetch-feeds-every-30-min', ...)` block:
-- replace `<PROJECT-REF>` with your project ref (visible in the project URL)
-- replace `<SERVICE-ROLE-KEY>` with your API secret key (Project Settings → API)
+If you previously scheduled the `fetch-feeds-every-30-min` cron job from an
+earlier version of this project, remove it — feed fetching is now triggered
+by the frontend instead:
 
-You can re-run just that `cron.schedule(...)` block later (e.g. `select
-cron.schedule(...)`) if you need to change the schedule or rotate the key —
-`cron.schedule` upserts by job name.
+```sql
+select cron.unschedule('fetch-feeds-every-30-min');
+```
 
 ### 3. Deploy the Edge Function
 

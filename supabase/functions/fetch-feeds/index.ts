@@ -1,14 +1,18 @@
 // Supabase Edge Function: fetch-feeds
 //
-// Invoked three ways:
-//   1. By pg_cron every 30 min (see migrations/0001_init.sql), authenticated
-//      with the service_role key — refreshes every active feed for every user.
-//   2. On-demand from the frontend's "Refresh now" button, authenticated with
-//      the signed-in user's JWT — refreshes only that user's feeds.
-//   3. On-demand from "Add Feed" with a JSON body of {discover: <url>} —
-//      feed discovery: if the URL isn't already a feed, fetches it and looks
-//      for a <link rel="alternate" type="application/rss+xml|atom+xml"> tag
-//      to resolve a plain website URL to its actual feed URL.
+// Invoked on-demand from the frontend, authenticated with the signed-in
+// user's JWT, so it only ever refreshes that user's own feeds:
+//   1. On load (see onSignedIn() in app.js) — no server-side cron anymore.
+//   2. From the "Refresh now" button, and silently after adding a feed or
+//      importing an OPML file (see refreshNow() call sites in app.js).
+//   3. From "Add Feed" with a JSON body of {discover: <url>} — feed
+//      discovery: if the URL isn't already a feed, fetches it and looks for
+//      a <link rel="alternate" type="application/rss+xml|atom+xml"> tag to
+//      resolve a plain website URL to its actual feed URL.
+//
+// The service_role-authenticated path (token === SERVICE_ROLE_KEY, refreshing
+// every user's feeds) is kept below for anyone who wants to re-add a cron
+// job, but nothing in this project schedules one anymore.
 //
 // Storage-bounding: summaries are truncated before insert, articles are
 // upserted (never duplicated) keyed on (feed_id, guid), and after each feed's

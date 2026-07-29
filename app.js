@@ -14,7 +14,6 @@ const ALL_ARTICLES_LIMIT = 400;
 const PER_FEED_ARTICLES_LIMIT = 200; // matches MAX_ARTICLES_PER_FEED server-side
 const LOAD_MORE_PAGE_SIZE = 100;
 const REFRESH_MIN_INTERVAL_MS = 60 * 1000; // client-side debounce for the Refresh button
-const AUTO_RELOAD_INTERVAL_MS = 5 * 60 * 1000; // pick up cron-fetched articles while tab is open
 
 // ─── STATE ──────────────────────────────────────────────────────────────────
 let session = null;
@@ -807,13 +806,16 @@ async function onSignedIn() {
   renderArticles();
   renderManageFeeds();
   renderFeedSidebar();
+  // No more server-side cron — pull fresh articles ourselves whenever the app loads.
+  refreshNow({ silent: true });
 }
 
-// Pick up cron-fetched articles without requiring a manual refresh.
+// Pick up changes from other tabs/devices when this tab regains focus —
+// a plain DB read, not a feed fetch (that only happens on load, manual
+// refresh, and feed adding — see onSignedIn/refreshNow/addFeed/importOpml).
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && isSignedIn()) { loadFeeds(); loadArticles(); loadReads(); }
 });
-setInterval(() => { if (isSignedIn() && document.visibilityState === 'visible') { loadFeeds(); loadArticles(); } }, AUTO_RELOAD_INTERVAL_MS);
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 function escHtml(s) {
