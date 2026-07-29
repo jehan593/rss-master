@@ -262,12 +262,13 @@ function formatContentHtml(text) {
 }
 
 function toggleExpand(articleId) {
+  const previouslyExpanded = expandedArticleId;
   if (expandedArticleId === articleId) {
     expandedArticleId = null;
   } else {
     expandedArticleId = articleId;
-    if (!readIds.has(articleId)) markRead(articleId);
   }
+  if (previouslyExpanded && !readIds.has(previouslyExpanded)) markRead(previouslyExpanded);
   renderArticles();
 }
 
