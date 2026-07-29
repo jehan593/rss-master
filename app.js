@@ -12,6 +12,7 @@ const sb = (window.supabase && SUPABASE_URL.startsWith('http') && !SUPABASE_URL.
 
 const ALL_ARTICLES_LIMIT = 400;
 const PER_FEED_ARTICLES_LIMIT = 200; // matches MAX_ARTICLES_PER_FEED server-side
+const LOAD_MORE_PAGE_SIZE = 100;
 const REFRESH_MIN_INTERVAL_MS = 60 * 1000; // client-side debounce for the Refresh button
 const AUTO_RELOAD_INTERVAL_MS = 5 * 60 * 1000; // pick up cron-fetched articles while tab is open
 
@@ -24,6 +25,13 @@ let activeFilter = 'all'; // 'all' or a feed id
 let editingDeleteFeedId = null;
 let lastRefreshAt = 0;
 let expandedArticleId = null; // at most one article expanded inline at a time
+
+// ─── PAGINATION ("Load more") ────────────────────────────────────────────────
+let allArticlesOffset = 0;
+let allArticlesHasMore = true;
+let feedArticlesOffset = {}; // feedId -> next range() offset
+let feedArticlesHasMore = {}; // feedId -> whether another page might exist
+let loadingMoreArticles = false;
 
 // ─── LOCAL CACHE (offline viewing only — writes always go through Supabase) ──
 function loadCache() {
@@ -110,11 +118,16 @@ function renderFeedSidebar() {
 
 function openFeedSidebar() {
   document.getElementById('feed-sidebar-backdrop').classList.add('open');
-  document.getElementById('feed-sidebar-search')?.focus();
+  // The popup is anchored under the switcher button via absolute positioning,
+  // not fixed to the viewport — if the page scrolls while it's open it drags
+  // along and rides up over the sticky header. Lock scroll instead of adding
+  // scroll-tracking JS just to reposition it.
+  document.body.style.overflow = 'hidden';
 }
 
 function closeFeedSidebar() {
   document.getElementById('feed-sidebar-backdrop').classList.remove('open');
+  document.body.style.overflow = '';
 }
 
 function setFilter(filter) {
@@ -162,7 +175,15 @@ function renderArticles() {
   // Article link/title/summary/fetched-content come from external, untrusted
   // sources — always run through escHtml/escAttr, never interpolated raw.
   // a.id is our own DB-generated UUID, so it's safe to inline directly.
-  list.innerHTML = visible.map(a => renderArticleCard(a)).join('');
+  const hasMore = activeFilter === 'all' ? allArticlesHasMore : !!feedArticlesHasMore[activeFilter];
+  const loadMoreHtml = hasMore ? `
+    <div class="load-more-wrap">
+      <button class="btn btn-sm btn-ghost" onclick="loadMoreArticles()" ${loadingMoreArticles ? 'disabled' : ''}>
+        ${loadingMoreArticles ? 'Loading…' : 'Load more'}
+      </button>
+    </div>` : '';
+
+  list.innerHTML = visible.map(a => renderArticleCard(a)).join('') + loadMoreHtml;
 }
 
 function renderArticleCard(a) {
@@ -507,6 +528,8 @@ async function doDeleteFeed() {
   if (error) { showToast('Failed to remove feed'); return; }
   feeds = feeds.filter(f => f.id !== id);
   articles = articles.filter(a => a.feed_id !== id);
+  delete feedArticlesOffset[id];
+  delete feedArticlesHasMore[id];
   if (activeFilter === id) activeFilter = 'all';
   saveCache();
   renderManageFeeds();
@@ -566,9 +589,12 @@ async function loadArticles() {
   const { data, error } = await sb.from('articles')
     .select('id,feed_id,link,title,summary,published_at')
     .order('published_at', { ascending: false })
-    .limit(ALL_ARTICLES_LIMIT);
+    .order('id', { ascending: false })
+    .range(0, ALL_ARTICLES_LIMIT - 1);
   if (error) { console.error('loadArticles failed', error); return; }
   mergeArticles(data || []);
+  allArticlesOffset = (data || []).length;
+  allArticlesHasMore = (data || []).length === ALL_ARTICLES_LIMIT;
   saveCache();
   renderFeedSidebar();
   renderArticles();
@@ -580,11 +606,51 @@ async function loadArticlesForFeed(feedId) {
     .select('id,feed_id,link,title,summary,published_at')
     .eq('feed_id', feedId)
     .order('published_at', { ascending: false })
-    .limit(PER_FEED_ARTICLES_LIMIT);
+    .order('id', { ascending: false })
+    .range(0, PER_FEED_ARTICLES_LIMIT - 1);
   if (error) { console.error('loadArticlesForFeed failed', error); return; }
   mergeArticles((data || []).map(a => ({ ...a, _loadedForFeed: true })));
+  feedArticlesOffset[feedId] = (data || []).length;
+  feedArticlesHasMore[feedId] = (data || []).length === PER_FEED_ARTICLES_LIMIT;
   saveCache();
   renderArticles();
+}
+
+async function loadMoreArticles() {
+  if (!sb || !session || loadingMoreArticles) return;
+  loadingMoreArticles = true;
+  renderArticles();
+
+  try {
+    if (activeFilter === 'all') {
+      const { data, error } = await sb.from('articles')
+        .select('id,feed_id,link,title,summary,published_at')
+        .order('published_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(allArticlesOffset, allArticlesOffset + LOAD_MORE_PAGE_SIZE - 1);
+      if (error) { console.error('loadMoreArticles failed', error); showToast('Failed to load more'); return; }
+      mergeArticles(data || []);
+      allArticlesOffset += (data || []).length;
+      allArticlesHasMore = (data || []).length === LOAD_MORE_PAGE_SIZE;
+    } else {
+      const feedId = activeFilter;
+      const offset = feedArticlesOffset[feedId] || 0;
+      const { data, error } = await sb.from('articles')
+        .select('id,feed_id,link,title,summary,published_at')
+        .eq('feed_id', feedId)
+        .order('published_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(offset, offset + LOAD_MORE_PAGE_SIZE - 1);
+      if (error) { console.error('loadMoreArticles failed', error); showToast('Failed to load more'); return; }
+      mergeArticles((data || []).map(a => ({ ...a, _loadedForFeed: true })));
+      feedArticlesOffset[feedId] = offset + (data || []).length;
+      feedArticlesHasMore[feedId] = (data || []).length === LOAD_MORE_PAGE_SIZE;
+    }
+    saveCache();
+  } finally {
+    loadingMoreArticles = false;
+    renderArticles();
+  }
 }
 
 function mergeArticles(rows) {
@@ -664,6 +730,10 @@ async function doSignOut() {
   feeds = [];
   articles = [];
   readIds = new Set();
+  allArticlesOffset = 0;
+  allArticlesHasMore = true;
+  feedArticlesOffset = {};
+  feedArticlesHasMore = {};
   saveCache();
   updateAccountUI();
   updateAuthModalState();
