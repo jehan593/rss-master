@@ -114,22 +114,7 @@ select cron.schedule(
   $$ select cleanup_old_articles(); select cap_articles_per_feed(200); $$
 );
 
--- ─── SCHEDULED FEED FETCH ─────────────────────────────────────────────────
--- Invokes the fetch-feeds edge function every 30 minutes via pg_net. Replace
--- <PROJECT-REF> and <SERVICE-ROLE-KEY> below (Project Settings → API), then
--- run just this block again if you ever need to change the schedule/key —
--- cron.schedule upserts by job name.
-select cron.schedule(
-  'fetch-feeds-every-30-min',
-  '*/30 * * * *',
-  $$
-  select net.http_post(
-    url := 'https://<PROJECT-REF>.functions.supabase.co/fetch-feeds',
-    headers := jsonb_build_object(
-      'Authorization', 'Bearer <SERVICE-ROLE-KEY>',
-      'Content-Type', 'application/json'
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
+-- Feed fetching is no longer cron-driven — the frontend triggers fetch-feeds
+-- itself (on load, on manual refresh, and on feed adding). If a
+-- fetch-feeds-every-30-min job was previously scheduled on this project,
+-- remove it with: select cron.unschedule('fetch-feeds-every-30-min');
