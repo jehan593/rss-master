@@ -164,6 +164,16 @@ main { padding: 28px 16px; max-width: var(--max-w); margin: 0 auto; }
 .feed-sidebar-item.active { background: var(--accent-bg); border-color: rgba(129,161,193,0.4); color: var(--accent); }
 .fs-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fs-count { font-size: 11px; color: var(--text3); flex-shrink: 0; }
+.feed-sidebar-item.has-unread .fs-name { font-weight: 700; color: var(--text); }
+.feed-sidebar-item.has-unread .fs-count { color: var(--text2); font-weight: 700; }
+.feed-sidebar-item.has-unread.active .fs-name { color: var(--accent); }
+
+/* Per-feed active row: color comes from an inline style (the feed's own
+   hue), set in JS — this just lets fs-name/fs-count inherit it instead of
+   being pinned to the generic accent color. */
+.feed-sidebar-item.feed-active-tinted .fs-name,
+.feed-sidebar-item.feed-active-tinted.has-unread .fs-name { color: inherit; }
+.feed-sidebar-item.feed-active-tinted .fs-count { color: inherit; opacity: 0.85; }
 
 .feed-color-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
