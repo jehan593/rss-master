@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzJlMzQ0MCIvPjxjaXJjbGUgY3g9IjkiIGN5PSIyMyIgcj0iMyIgZmlsbD0iIzg4YzBkMCIvPjxwYXRoIGQ9Ik03IDE1YTEwIDEwIDAgMCAxIDEwIDEwIiBmaWxsPSJub25lIiBzdHJva2U9IiNhM2JlOGMiIHN0cm9rZS13aWR0aD0iMi41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48cGF0aCBkPSJNNyA4YTE3IDE3IDAgMCAxIDE3IDE3IiBmaWxsPSJub25lIiBzdHJva2U9IiM4MWExYzEiIHN0cm9rZS13aWR0aD0iMi41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48L3N2Zz4=">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RSS Reader</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="style.css?v=20260729d">
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <svg class="logo-svg" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="18" height="18" rx="4" fill="#5e81ac" opacity="0.25"/>
+        <circle cx="5.5" cy="12.5" r="1.7" fill="#88c0d0"/>
+        <path d="M4.5 8.5A5 5 0 0 1 9.5 13.5" stroke="#a3be8c" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+        <path d="M4.5 4.8A8.7 8.7 0 0 1 13.2 13.5" stroke="#81a1c1" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+      </svg>
+      rss reader
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-sm" id="refresh-btn" onclick="refreshNow()">⟳ Refresh</button>
+      <button class="btn-sync btn-sm" id="account-btn" onclick="openAuthModal()">
+        <span class="sync-status-dot disconnected" id="header-account-dot"></span><span id="account-btn-label">Sign in</span>
+      </button>
+    </div>
+  </div>
+  <div class="tabs-wrap">
+    <div class="tabs">
+      <button class="tab active" id="tab-articles" onclick="switchTab('articles', this)">Articles</button>
+      <button class="tab" onclick="switchTab('feeds', this)">Feeds</button>
+      <button class="tab" onclick="switchTab('settings', this)">Settings</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ARTICLES SECTION -->
+  <div class="section active" id="section-articles">
+    <div class="feed-switcher-bar">
+      <button class="btn btn-sm feed-switcher-btn" onclick="openFeedSidebar()">☰ <span id="current-feed-label">All</span></button>
+      <div id="feed-sidebar-backdrop">
+        <div class="feed-sidebar-catcher" onclick="closeFeedSidebar()"></div>
+        <div class="feed-sidebar-popup">
+          <input type="text" class="feed-sidebar-search" id="feed-sidebar-search" placeholder="Search feeds…" oninput="renderFeedSidebar()">
+          <div id="feed-sidebar-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="articles-toolbar">
+      <span class="unread-count" id="unread-count"></span>
+      <button class="btn btn-sm btn-ghost" onclick="markAllRead()">Mark all read</button>
+    </div>
+
+    <div id="articles-list"></div>
+  </div>
+
+  <!-- FEEDS SECTION -->
+  <div class="section" id="section-feeds">
+    <div class="habits-manage-header">
+      <h2>Feeds</h2>
+    </div>
+
+    <div class="chart-card">
+      <div class="form-group" style="margin-bottom:12px;">
+        <label>Feed URL</label>
+        <input type="text" id="new-feed-url" placeholder="https://example.com or https://example.com/feed.xml" onkeydown="if(event.key==='Enter')addFeed()">
+      </div>
+      <button class="btn-accent" id="add-feed-btn" onclick="addFeed()">+ Add Feed</button>
+    </div>
+
+    <div class="chart-card">
+      <h3>Import / export</h3>
+      <div class="import-export-row">
+        <button class="btn btn-sm" onclick="exportOpml()">⇩ Export OPML</button>
+        <button class="btn btn-sm" onclick="document.getElementById('import-opml-input').click()">⇧ Import OPML</button>
+        <input type="file" id="import-opml-input" accept=".opml,.xml,text/xml" style="display:none;" onchange="importOpml(event)">
+      </div>
+    </div>
+
+    <div id="manage-feeds-list"></div>
+  </div>
+
+  <!-- SETTINGS SECTION -->
+  <div class="section" id="section-settings">
+    <div class="habits-manage-header">
+      <h2>Settings</h2>
+    </div>
+
+    <div class="chart-card">
+      <h3>Account</h3>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-title">Sign in</div>
+          <div class="settings-row-desc">Your feeds and read state are tied to your account and sync across devices.</div>
+        </div>
+        <button class="btn-sync btn-sm" onclick="openAuthModal()">
+          <span class="sync-status-dot disconnected" id="settings-account-dot"></span><span id="settings-account-label">Sign in</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Storage</h3>
+      <p style="font-size:13px;color:var(--text3);line-height:1.6;">
+        Articles are kept for 30 days and automatically deleted after that. Each feed is
+        also capped at its 200 most recent articles. Only the title, link, and a short
+        summary are stored — never full article content — so storage use stays small and
+        bounded no matter how many feeds you follow.
+      </p>
+    </div>
+  </div>
+</main>
+
+<!-- AUTH MODAL -->
+<div id="auth-modal-backdrop" onclick="closeAuthModal(event)">
+  <div class="modal" style="max-width:460px;">
+    <h3 style="font-family:'Martian Mono',monospace;font-size:17px;font-weight:700;margin-bottom:6px;">⟳ Account</h3>
+    <p style="font-size:13px;color:var(--text3);margin-bottom:20px;">Sign in with your email to add feeds and sync read state across devices.</p>
+
+    <div id="auth-signed-out">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="auth-email" placeholder="you@example.com" oninput="onAuthEmailInput()">
+      </div>
+      <div class="sync-info-box">
+        We'll email you a sign-in link — no password needed. Click it on any device to
+        sign in there too; the same email always resolves to the same feeds.
+      </div>
+    </div>
+
+    <div id="auth-signed-in" style="display:none;">
+      <p style="font-size:12px;color:var(--text3);margin-bottom:14px;">Signed in — feeds and read state sync automatically in the background.</p>
+      <div id="auth-status-row" style="font-size:13px;color:var(--text3);">
+        <span class="sync-status-dot connected" id="auth-dot"></span>
+        <span id="auth-status-text">Signed in</span>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:24px;">
+      <button class="btn" onclick="closeAuthModal()">Close</button>
+      <button class="btn-accent" id="auth-save-btn" onclick="sendMagicLink()">Send magic link</button>
+    </div>
+
+    <div class="lock-error" id="auth-error" style="margin-top:8px;"></div>
+  </div>
+</div>
+
+<!-- FEED PICKER MODAL (discovery found multiple feeds on one page) -->
+<div id="feed-picker-backdrop" onclick="closeFeedPicker(event)">
+  <div class="modal" style="max-width:460px;">
+    <h3 style="font-family:'Martian Mono',monospace;font-size:17px;font-weight:700;margin-bottom:6px;">Choose a feed</h3>
+    <p style="font-size:13px;color:var(--text3);margin-bottom:16px;">Found these feeds at that site:</p>
+    <div id="feed-picker-list"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeFeedPicker()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- CUSTOM CONFIRM DELETE MODAL -->
+<div id="confirm-modal-backdrop" onclick="closeConfirmModal(event)">
+  <div class="confirm-modal">
+    <span class="confirm-icon">⚠</span>
+    <h3>Remove Feed?</h3>
+    <div class="confirm-habit-name" id="confirm-feed-name"></div>
+    <p>All cached articles for this feed will be removed. This cannot be undone.</p>
+    <div class="confirm-actions">
+      <button class="btn-cancel" onclick="closeConfirmModal()">Cancel</button>
+      <button class="btn-confirm-delete" id="confirm-delete-btn">✕ Remove</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js?v=20260729m"></script>
+</body>
+</html>
