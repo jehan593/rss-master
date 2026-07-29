@@ -77,11 +77,43 @@ function timeAgo(iso) {
 // ─── ARTICLES ───────────────────────────────────────────────────────────────
 // Deterministic per-feed color (no server storage, no dependency) — same
 // feed always hashes to the same hue, so it's a stable visual identity
-// across the sidebar, article badges, and unread dots.
-function feedColor(feedId) {
+// across the sidebar, article badges, and unread dots. A continuous hash %
+// 360 let unrelated feeds land a few degrees apart and read as near-duplicates
+// (two different pinks, two different purples); picking from a small fixed
+// set of hues spaced 30° apart guarantees every pair is either the same
+// color or clearly distinct — never "almost the same".
+const FEED_HUES = [195, 225, 255, 285, 315, 345, 15, 45, 75, 105, 135, 165];
+
+function feedHsl(feedId) {
   let hash = 0;
   for (let i = 0; i < feedId.length; i++) hash = (hash * 31 + feedId.charCodeAt(i)) >>> 0;
-  return `hsl(${hash % 360}, 60%, 65%)`;
+  const idx = hash % FEED_HUES.length;
+  const h = FEED_HUES[idx];
+  const alt = idx % 2 === 1;
+  return { h, s: alt ? 62 : 55, l: alt ? 70 : 64 };
+}
+
+function feedColor(feedId) {
+  const { h, s, l } = feedHsl(feedId);
+  return `hsl(${h}, ${s}%, ${l}%)`;
+}
+
+// Inline style that tints a whole pill (background/border/text) with a
+// feed's own hue instead of a flat neutral fill, so the pill matches the
+// color dot next to it rather than just having a colored dot inside a gray box.
+function feedTintStyle(feedId, bgAlpha, borderAlpha, textBoost) {
+  const { h, s, l } = feedHsl(feedId);
+  return `background:hsla(${h}, ${s}%, ${l}%, ${bgAlpha}); border-color:hsla(${h}, ${s}%, ${l}%, ${borderAlpha}); color:hsl(${h}, ${Math.min(s + textBoost, 80)}%, ${Math.min(l + textBoost + 2, 85)}%);`;
+}
+
+// Selected feed row in the picker popup.
+function feedActiveStyle(feedId) {
+  return feedTintStyle(feedId, 0.16, 0.5, 10);
+}
+
+// Per-article feed badge, shown on every article card.
+function feedBadgeStyle(feedId) {
+  return feedTintStyle(feedId, 0.14, 0.4, 8);
 }
 
 function renderFeedSidebar() {
@@ -100,18 +132,23 @@ function renderFeedSidebar() {
   const sorted = [...feeds].sort((a, b) => a.position - b.position)
     .filter(f => !query || feedTitle(f.id).toLowerCase().includes(query));
 
-  let html = `<button class="feed-sidebar-item ${activeFilter === 'all' ? 'active' : ''}" onclick="setFilter('all')">
+  const allUnread = unreadCountFor('all');
+  let html = `<button class="feed-sidebar-item ${activeFilter === 'all' ? 'active' : ''} ${allUnread ? 'has-unread' : ''}" onclick="setFilter('all')">
     <span class="feed-color-dot" style="background:var(--accent2)"></span>
     <span class="fs-name">All</span>
-    <span class="fs-count">${unreadCountFor('all')}</span>
+    <span class="fs-count">${allUnread}</span>
   </button>`;
 
-  html += sorted.map(f => `
-    <button class="feed-sidebar-item ${activeFilter === f.id ? 'active' : ''}" onclick="setFilter('${f.id}')">
+  html += sorted.map(f => {
+    const count = unreadCountFor(f.id);
+    const isActive = activeFilter === f.id;
+    return `
+    <button class="feed-sidebar-item ${isActive ? 'active feed-active-tinted' : ''} ${count ? 'has-unread' : ''}" ${isActive ? `style="${feedActiveStyle(f.id)}"` : ''} onclick="setFilter('${f.id}')">
       <span class="feed-color-dot" style="background:${feedColor(f.id)}"></span>
       <span class="fs-name">${escHtml(feedTitle(f.id))}</span>
-      <span class="fs-count">${unreadCountFor(f.id)}</span>
-    </button>`).join('');
+      <span class="fs-count">${count}</span>
+    </button>`;
+  }).join('');
 
   listEl.innerHTML = html;
 }
@@ -191,7 +228,7 @@ function renderArticleCard(a) {
   const color = feedColor(a.feed_id);
   const meta = `
     <div class="article-meta">
-      <span class="article-feed-badge"><span class="feed-color-dot" style="background:${color}"></span>${escHtml(feedTitle(a.feed_id))}</span>
+      <span class="article-feed-badge" style="${feedBadgeStyle(a.feed_id)}"><span class="feed-color-dot" style="background:${color}"></span>${escHtml(feedTitle(a.feed_id))}</span>
       <span>${timeAgo(a.published_at)}</span>
     </div>`;
 
