@@ -242,7 +242,7 @@ function renderArticleCard(a) {
   const expandedExtra = isExpanded ? `
     <div class="article-content">${formatContentHtml(a.summary || 'No summary available for this article.')}</div>
     <div class="article-expanded-actions">
-      <a class="btn btn-sm" href="${escAttr(a.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation(); markRead('${a.id}')">Open original ↗</a>
+      <a class="btn btn-sm" href="${escAttr(a.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation(); if (!readIds.has('${a.id}')) markRead('${a.id}')">Open original ↗</a>
       <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); toggleExpand('${a.id}')">▲ Collapse</button>
     </div>` : '';
 
@@ -279,7 +279,7 @@ async function markRead(articleId) {
   saveCache();
   if (!sb || !session) return;
   const { error } = await sb.from('article_reads')
-    .upsert({ user_id: session.user.id, article_id: articleId }, { onConflict: 'user_id,article_id' });
+    .upsert({ user_id: session.user.id, article_id: articleId }, { onConflict: 'user_id,article_id', ignoreDuplicates: true });
   if (error) console.error('markRead failed', error);
 }
 
@@ -293,7 +293,7 @@ async function markAllRead() {
   showToast('Marked all read');
   if (!sb || !session) return;
   const rows = newlyRead.map(a => ({ user_id: session.user.id, article_id: a.id }));
-  const { error } = await sb.from('article_reads').upsert(rows, { onConflict: 'user_id,article_id' });
+  const { error } = await sb.from('article_reads').upsert(rows, { onConflict: 'user_id,article_id', ignoreDuplicates: true });
   if (error) console.error('markAllRead failed', error);
 }
 
@@ -700,7 +700,11 @@ async function loadReads() {
   if (!sb || !session) return;
   const { data, error } = await sb.from('article_reads').select('article_id');
   if (error) { console.error('loadReads failed', error); return; }
-  readIds = new Set((data || []).map(r => r.article_id));
+  // Merge rather than replace: there's no "mark unread" feature, so readIds
+  // only ever grows. A plain replace here can race an in-flight markRead
+  // write (or a still-propagating write from another tab/device) and stomp
+  // an already-persisted local read back to unread.
+  (data || []).forEach(r => readIds.add(r.article_id));
   saveCache();
   renderArticles();
   renderFeedSidebar();
