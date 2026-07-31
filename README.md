@@ -45,6 +45,11 @@ Open **SQL Editor** in the Supabase dashboard and run each file in
 1. `0001_init.sql` — schema, RLS, retention/cap functions, daily cleanup cron job
 2. `0002_feed_position.sql` — adds feed reordering
 3. `0003_feed_display_name.sql` — adds feed renaming
+4. `0004_dedupe_articles.sql` — one-time cleanup: merges duplicate articles
+   caused by a drifting dedup key (see file for details) and re-keys `guid`
+   to the fixed scheme. Run this even on an existing project; re-deploy the
+   edge function (step 3 below) at the same time so new fetches use the
+   fixed scheme too.
 
 If you previously scheduled the `fetch-feeds-every-30-min` cron job from an
 earlier version of this project, remove it — feed fetching is now triggered
@@ -101,6 +106,7 @@ fonts/                                           Self-hosted Martian Mono font
 supabase/migrations/0001_init.sql                Schema, RLS, retention/cap functions, cron jobs
 supabase/migrations/0002_feed_position.sql       Feed reordering
 supabase/migrations/0003_feed_display_name.sql   Feed renaming
+supabase/migrations/0004_dedupe_articles.sql     One-time duplicate cleanup + guid re-key
 supabase/functions/fetch-feeds/                  Edge function: fetches/parses feeds, feed autodiscovery
 ```
 
