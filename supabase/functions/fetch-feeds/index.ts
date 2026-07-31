@@ -18,6 +18,13 @@
 // upserted (never duplicated) keyed on (feed_id, guid), and after each feed's
 // items are inserted we trim it back down to MAX_ARTICLES_PER_FEED. The daily
 // 30-day retention sweep lives in Postgres (cleanup_old_articles), not here.
+//
+// guid is derived from the article's link (see fetchOneFeed below), not from
+// feed-extractor's own id/guid field: for feeds without a real <guid>/<id>
+// tag, that library synthesizes one as hash(link) + '-' + timestamp(pubDate),
+// which drifts whenever a feed re-serializes an old item with a slightly
+// different pubDate — causing spurious duplicate rows on every such drift.
+// Link is far more stable, so it's used as the dedup key directly.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { extractFromXml } from 'https://esm.sh/@extractus/feed-extractor@7.1.3';
 
@@ -103,16 +110,15 @@ async function fetchOneFeed(feed: FeedRow) {
     .filter((e: any) => e && (e.link || e.id))
     .slice(0, MAX_ARTICLES_PER_FEED) // never process more than the cap in one pass
     .map((e: any) => {
-      const link = e.link || e.id;
-      const guid = e.id || e.link;
+      const link = String(e.link || e.id);
       const publishedRaw = e.published || e.updated;
       const publishedAt = publishedRaw && !isNaN(Date.parse(publishedRaw))
         ? new Date(publishedRaw).toISOString()
         : new Date().toISOString();
       return {
         feed_id: feed.id,
-        guid: String(guid).slice(0, 500),
-        link: String(link).slice(0, 2000),
+        guid: link.slice(0, 500),
+        link: link.slice(0, 2000),
         title: truncate(stripHtml(e.title) || '(untitled)', 300),
         summary: truncate(stripHtml(e.description), MAX_SUMMARY_LENGTH),
         published_at: publishedAt,
