@@ -19,12 +19,18 @@
 // items are inserted we trim it back down to MAX_ARTICLES_PER_FEED. The daily
 // 30-day retention sweep lives in Postgres (cleanup_old_articles), not here.
 //
-// guid is derived from the article's link (see fetchOneFeed below), not from
-// feed-extractor's own id/guid field: for feeds without a real <guid>/<id>
-// tag, that library synthesizes one as hash(link) + '-' + timestamp(pubDate),
-// which drifts whenever a feed re-serializes an old item with a slightly
-// different pubDate — causing spurious duplicate rows on every such drift.
-// Link is far more stable, so it's used as the dedup key directly.
+// guid prefers feed-extractor's own entry id (see fetchOneFeed below), but
+// only when it's provably a real <guid>/<id> tag rather than the library's
+// synthesized fallback. feed-extractor's getEntryId is:
+//   id ? getText(id) : hash(pureUrl(link)) + '-' + (new Date(pubDate)).getTime()
+// i.e. for feeds without a real guid/id tag, it synthesizes one that embeds
+// the item's pubDate — which drifts whenever a feed re-serializes an old item
+// with a slightly different pubDate, causing spurious duplicate rows. That
+// synthesized shape (lowercase-base36-hash + '-' + all-digit epoch-ms) is
+// deterministic, so isLikelySynthesizedId() below reliably tells "definitely
+// not synthesized" (real guid, safe to use — stable even when a feed's link
+// itself is unstable, e.g. tracking redirects/UTM params) from "might be
+// synthesized" (falls back to link, which is what this key used to always be).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { extractFromXml } from 'https://esm.sh/@extractus/feed-extractor@7.1.3';
 
@@ -45,6 +51,14 @@ function stripHtml(html: string | undefined | null): string {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1).trimEnd() + '…' : s;
+}
+
+// Matches feed-extractor's synthesized-id shape exactly: base36 hash + '-' +
+// all-digit epoch-ms timestamp. A real <guid>/<id> tag could in principle
+// collide with this shape, but never the reverse — so a non-match is proof
+// the id came from the feed itself, not the library's fallback.
+function isLikelySynthesizedId(id: string): boolean {
+  return /^[0-9a-z]+-[0-9]+$/.test(id);
 }
 
 interface FeedRow {
@@ -111,13 +125,15 @@ async function fetchOneFeed(feed: FeedRow) {
     .slice(0, MAX_ARTICLES_PER_FEED) // never process more than the cap in one pass
     .map((e: any) => {
       const link = String(e.link || e.id);
+      const rawId = e.id != null ? String(e.id) : '';
+      const guidKey = rawId && !isLikelySynthesizedId(rawId) ? rawId : link;
       const publishedRaw = e.published || e.updated;
       const publishedAt = publishedRaw && !isNaN(Date.parse(publishedRaw))
         ? new Date(publishedRaw).toISOString()
         : new Date().toISOString();
       return {
         feed_id: feed.id,
-        guid: link.slice(0, 500),
+        guid: guidKey.slice(0, 500),
         link: link.slice(0, 2000),
         title: truncate(stripHtml(e.title) || '(untitled)', 300),
         summary: truncate(stripHtml(e.description), MAX_SUMMARY_LENGTH),
