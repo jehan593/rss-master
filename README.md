@@ -50,6 +50,15 @@ Open **SQL Editor** in the Supabase dashboard and run each file in
    to the fixed scheme. Run this even on an existing project; re-deploy the
    edge function (step 3 below) at the same time so new fetches use the
    fixed scheme too.
+5. `0005_article_reads_update_policy.sql` — adds the missing RLS policy that
+   let re-marking an already-read article as read fail silently
+6. `0006_supabase_advisor_fixes.sql` — addresses Supabase Advisor warnings
+   (function search_path, an unused extension, public execute grants)
+7. `0007_dedupe_articles_by_link.sql` — one-time cleanup for a second wave of
+   duplicates: `0004` re-keyed every article's `guid` to its `link`, but the
+   guid-preference logic added afterward diverged from that for feeds with a
+   real, distinct `<guid>` tag (see file for details). Run this even on an
+   existing project; re-deploy the edge function at the same time.
 
 If you previously scheduled the `fetch-feeds-every-30-min` cron job from an
 earlier version of this project, remove it — feed fetching is now triggered
@@ -107,6 +116,9 @@ supabase/migrations/0001_init.sql                Schema, RLS, retention/cap func
 supabase/migrations/0002_feed_position.sql       Feed reordering
 supabase/migrations/0003_feed_display_name.sql   Feed renaming
 supabase/migrations/0004_dedupe_articles.sql     One-time duplicate cleanup + guid re-key
+supabase/migrations/0005_article_reads_update_policy.sql  RLS policy for re-marking articles read
+supabase/migrations/0006_supabase_advisor_fixes.sql       Supabase Advisor warning fixes
+supabase/migrations/0007_dedupe_articles_by_link.sql      One-time duplicate cleanup (second wave, by link)
 supabase/functions/fetch-feeds/                  Edge function: fetches/parses feeds, feed autodiscovery
 ```
 
@@ -129,8 +141,10 @@ how many feeds you add:
 - **Read-state cascades**: `article_reads` rows are deleted automatically
   (`ON DELETE CASCADE`) whenever their article is removed by either cleanup
   job, so that table can never outgrow `articles`.
-- **Deduplication**: articles are upserted on `(feed_id, guid)`, so re-fetching
-  a feed never creates duplicate rows.
+- **Deduplication**: incoming articles are resolved by `(feed_id, link)`
+  first — repairing `guid` on a match instead of inserting — then upserted on
+  `(feed_id, guid)` for anything new, so re-fetching a feed never creates
+  duplicate rows even if the guid scheme changes.
 - **Conditional fetching**: the Edge Function sends `If-None-Match` /
   `If-Modified-Since` on every request and skips parsing entirely on a
   `304 Not Modified` response, keeping fetch cost low as feed count grows.

@@ -15,9 +15,12 @@
 // job, but nothing in this project schedules one anymore.
 //
 // Storage-bounding: summaries are truncated before insert, articles are
-// upserted (never duplicated) keyed on (feed_id, guid), and after each feed's
-// items are inserted we trim it back down to MAX_ARTICLES_PER_FEED. The daily
-// 30-day retention sweep lives in Postgres (cleanup_old_articles), not here.
+// upserted (never duplicated) keyed on (feed_id, guid) — but resolved by link
+// first (see fetchOneFeed below) so a guid-scheme change never inserts a
+// duplicate for an article that already exists under a different guid — and
+// after each feed's items are inserted we trim it back down to
+// MAX_ARTICLES_PER_FEED. The daily 30-day retention sweep lives in Postgres
+// (cleanup_old_articles), not here.
 //
 // guid prefers feed-extractor's own entry id (see fetchOneFeed below), but
 // only when it's provably a real <guid>/<id> tag rather than the library's
@@ -142,9 +145,39 @@ async function fetchOneFeed(feed: FeedRow) {
     });
 
   if (rows.length) {
-    const { error } = await admin.from('articles').upsert(rows, { onConflict: 'feed_id,guid', ignoreDuplicates: true });
-    if (error) {
-      return { feedId: feed.id, ok: false, reason: `upsert error: ${error.message}` };
+    // Resolve by link first, not just guid: link is the one thing that never
+    // changes scheme (guid did — see file header), so an existing row here
+    // means "same article, guid key just needs repairing" rather than a new
+    // article to insert. Skipping this and upserting on guid alone would
+    // silently insert a duplicate (unread, no article_reads row) any time a
+    // feed's real guid differs from whatever guid scheme wrote the existing
+    // row — exactly what happened to every article from feeds with a genuine
+    // non-link guid after the dedupe-by-link migration reset all guids to
+    // link and the code then switched back to preferring real guids.
+    const links = rows.map((r) => r.link);
+    const { data: existing, error: lookupError } = await admin
+      .from('articles')
+      .select('id,link,guid')
+      .eq('feed_id', feed.id)
+      .in('link', links);
+    if (lookupError) {
+      return { feedId: feed.id, ok: false, reason: `lookup error: ${lookupError.message}` };
+    }
+    const existingByLink = new Map((existing || []).map((r) => [r.link, r]));
+
+    const toInsert = rows.filter((r) => !existingByLink.has(r.link));
+    const guidFixups = rows
+      .filter((r) => existingByLink.has(r.link) && existingByLink.get(r.link)!.guid !== r.guid)
+      .map((r) => ({ id: existingByLink.get(r.link)!.id, guid: r.guid }));
+
+    if (toInsert.length) {
+      const { error } = await admin.from('articles').upsert(toInsert, { onConflict: 'feed_id,guid', ignoreDuplicates: true });
+      if (error) {
+        return { feedId: feed.id, ok: false, reason: `upsert error: ${error.message}` };
+      }
+    }
+    for (const fixup of guidFixups) {
+      await admin.from('articles').update({ guid: fixup.guid }).eq('id', fixup.id);
     }
   }
 
