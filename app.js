@@ -239,10 +239,15 @@ function renderArticleCard(a) {
   // "Open original" button in the expanded actions row.
   const title = `<div class="article-title">${escHtml(a.title)}</div>`;
 
+  const markUnreadBtn = isRead
+    ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); markUnread('${a.id}')">Mark unread</button>`
+    : '';
+
   const expandedExtra = isExpanded ? `
     <div class="article-content">${formatContentHtml(a.summary || 'No summary available for this article.')}</div>
     <div class="article-expanded-actions">
       <a class="btn btn-sm" href="${escAttr(a.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation(); if (!readIds.has('${a.id}')) markRead('${a.id}')">Open original ↗</a>
+      ${markUnreadBtn}
       <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); toggleExpand('${a.id}')">▲ Collapse</button>
     </div>` : '';
 
@@ -281,6 +286,20 @@ async function markRead(articleId) {
   const { error } = await sb.from('article_reads')
     .upsert({ user_id: session.user.id, article_id: articleId }, { onConflict: 'user_id,article_id', ignoreDuplicates: true });
   if (error) console.error('markRead failed', error);
+}
+
+async function markUnread(articleId) {
+  readIds.delete(articleId);
+  // Collapse it too: toggleExpand() marks the article being closed as read
+  // (see git history), so leaving it expanded would just flip it straight
+  // back to read the next time it's collapsed.
+  if (expandedArticleId === articleId) expandedArticleId = null;
+  renderArticles();
+  renderFeedSidebar();
+  saveCache();
+  if (!sb || !session) return;
+  const { error } = await sb.from('article_reads').delete().eq('article_id', articleId);
+  if (error) console.error('markUnread failed', error);
 }
 
 async function markAllRead() {
@@ -700,10 +719,12 @@ async function loadReads() {
   if (!sb || !session) return;
   const { data, error } = await sb.from('article_reads').select('article_id');
   if (error) { console.error('loadReads failed', error); return; }
-  // Merge rather than replace: there's no "mark unread" feature, so readIds
-  // only ever grows. A plain replace here can race an in-flight markRead
-  // write (or a still-propagating write from another tab/device) and stomp
-  // an already-persisted local read back to unread.
+  // Merge rather than replace: a plain replace here can race an in-flight
+  // markRead write (or a still-propagating write from another tab/device)
+  // and stomp an already-persisted local read back to unread. This only
+  // ever adds ids present in the server response, never removes one for
+  // being absent, so it can't undo a local markUnread() either — the same
+  // small race window just applies symmetrically to that action too.
   (data || []).forEach(r => readIds.add(r.article_id));
   saveCache();
   renderArticles();
