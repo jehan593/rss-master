@@ -1,10 +1,12 @@
--- RSS Reader schema
--- Mirrors habit-tracker's pattern: per-user rows via auth.uid(), RLS-secured,
--- anon key safe to ship client-side. Run this whole file once in the
--- Supabase SQL editor (Project → SQL Editor → New query) on a fresh project.
+-- RSS Master — full schema
+--
+-- Run this whole file once in the Supabase SQL editor (Project → SQL Editor
+-- → New query) on a fresh project. It creates everything the app needs:
+-- tables, RLS policies, and the storage-bounding maintenance jobs. Mirrors
+-- habit-tracker's pattern: per-user rows via auth.uid(), RLS-secured, anon
+-- key safe to ship client-side.
 
 create extension if not exists pg_cron;
-create extension if not exists pg_net;
 create extension if not exists pgcrypto; -- gen_random_uuid()
 
 -- ─── FEEDS ────────────────────────────────────────────────────────────────
@@ -14,6 +16,8 @@ create table if not exists feeds (
   url text not null,
   title text,
   site_url text,
+  display_name text, -- user-chosen name; when set, always wins over `title` client-side
+  position integer not null,
   last_fetched_at timestamptz,
   etag text,
   last_modified text,
@@ -24,6 +28,7 @@ create table if not exists feeds (
 );
 
 create index if not exists feeds_active_idx on feeds (active) where active;
+create index if not exists feeds_position_idx on feeds (user_id, position);
 
 alter table feeds enable row level security;
 
@@ -35,6 +40,25 @@ create policy "feeds_update_own" on feeds
   for update using (auth.uid() = user_id);
 create policy "feeds_delete_own" on feeds
   for delete using (auth.uid() = user_id);
+
+-- New feeds get the next position for their user automatically, so the
+-- client never needs to compute it itself (avoids races between concurrent
+-- inserts). search_path is pinned so this SECURITY-context trigger can't be
+-- hijacked by a caller manipulating search_path before the insert.
+create or replace function feeds_set_next_position()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.position is null then
+    select coalesce(max(position) + 1, 0) into new.position from feeds where user_id = new.user_id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists feeds_set_next_position_trigger on feeds;
+create trigger feeds_set_next_position_trigger
+before insert on feeds
+for each row execute function feeds_set_next_position();
 
 -- ─── ARTICLES ─────────────────────────────────────────────────────────────
 -- Only title/link/short summary/published_at are stored — never full article
@@ -68,7 +92,7 @@ create policy "articles_select_via_own_feed" on articles
 -- ─── ARTICLE READS ────────────────────────────────────────────────────────
 -- Cross-device read/unread state, mirroring habit-tracker's sync model.
 -- Cascades on article deletion so this table can never outgrow articles —
--- the 30-day retention job automatically bounds it too.
+-- the retention/cap jobs below automatically bound it too.
 create table if not exists article_reads (
   user_id uuid not null references auth.users(id) on delete cascade,
   article_id uuid not null references articles(id) on delete cascade,
@@ -82,22 +106,45 @@ create policy "article_reads_select_own" on article_reads
   for select using (auth.uid() = user_id);
 create policy "article_reads_insert_own" on article_reads
   for insert with check (auth.uid() = user_id);
+create policy "article_reads_update_own" on article_reads
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "article_reads_delete_own" on article_reads
   for delete using (auth.uid() = user_id);
 
 -- ─── STORAGE-BOUNDING MAINTENANCE ────────────────────────────────────────
--- 1) Hard retention window: nothing older than 30 days ever stays around,
---    regardless of how many feeds exist. article_reads rows cascade-delete
---    with their article automatically.
-create or replace function cleanup_old_articles()
+-- Three bounds, in order of precedence (most authoritative first) since the
+-- free Supabase plan caps database storage at 500MB and this project is
+-- built to stay far under that indefinitely:
+--
+-- 1) Total-article cap: the hard ceiling. Even if every feed were somehow
+--    exempt from the rules below, no user can ever accumulate more than
+--    max_total articles. This is what actually guarantees bounded storage —
+--    the other two rules are hygiene on top of it, not the thing doing the
+--    bounding.
+-- 2) 7-day retention: nothing older than a week stays around regardless of
+--    volume. In practice this rarely even fires once (1) is in place — a
+--    handful of high-volume feeds can fill the total cap in well under 7
+--    days, at which point (1) is already the rule doing the trimming.
+-- 3) Per-feed cap: keeps any single very high-volume feed from crowding out
+--    every other feed's articles within the shared total-cap budget.
+create or replace function cap_total_articles(max_total int default 2000)
 returns void language sql security definer set search_path = public as $$
-  delete from articles where published_at < now() - interval '30 days';
+  delete from articles a
+  using (
+    select ar.id, row_number() over (
+      partition by f.user_id order by ar.published_at desc
+    ) as rn
+    from articles ar
+    join feeds f on f.id = ar.feed_id
+  ) ranked
+  where a.id = ranked.id and ranked.rn > max_total;
 $$;
 
--- 2) Per-feed cap: even a very high-volume feed can never accumulate more
---    than max_per_feed rows, independent of the 30-day window above. This is
---    what actually guarantees total storage stays bounded as feed count
---    grows — total rows <= (active feeds) * max_per_feed, always.
+create or replace function cleanup_old_articles()
+returns void language sql security definer set search_path = public as $$
+  delete from articles where published_at < now() - interval '7 days';
+$$;
+
 create or replace function cap_articles_per_feed(max_per_feed int default 200)
 returns void language sql security definer set search_path = public as $$
   delete from articles a
@@ -108,13 +155,22 @@ returns void language sql security definer set search_path = public as $$
   where a.id = ranked.id and ranked.rn > max_per_feed;
 $$;
 
+-- These are maintenance functions invoked only by the pg_cron job below
+-- (which runs as the scheduling role) — they have no business being
+-- callable by anon/authenticated clients. Revoking from PUBLIC alone isn't
+-- enough: Supabase grants EXECUTE on new public-schema functions to
+-- anon/authenticated directly, so both need explicit revokes.
+revoke execute on function cap_total_articles(int) from public, anon, authenticated;
+revoke execute on function cleanup_old_articles() from public, anon, authenticated;
+revoke execute on function cap_articles_per_feed(int) from public, anon, authenticated;
+
 select cron.schedule(
   'cleanup-old-articles-daily',
   '30 3 * * *',
-  $$ select cleanup_old_articles(); select cap_articles_per_feed(200); $$
+  $$ select cap_total_articles(2000); select cleanup_old_articles(); select cap_articles_per_feed(200); $$
 );
 
--- Feed fetching is no longer cron-driven — the frontend triggers fetch-feeds
--- itself (on load, on manual refresh, and on feed adding). If a
--- fetch-feeds-every-30-min job was previously scheduled on this project,
--- remove it with: select cron.unschedule('fetch-feeds-every-30-min');
+-- Feed fetching is triggered client-side (on load, on manual refresh, and
+-- on feed adding), not by cron. If you're migrating an older deployment of
+-- this project that still has a fetch-feeds cron job scheduled, remove it:
+--   select cron.unschedule('fetch-feeds-every-30-min');

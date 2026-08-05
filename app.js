@@ -1,8 +1,8 @@
 // ─── SUPABASE SETUP ─────────────────────────────────────────────────────────
 // Fill these in from your Supabase project: Project Settings → API.
 // The anon key is safe to ship client-side — Row Level Security (see
-// supabase/migrations/0001_init.sql) is what actually restricts each user to
-// their own feeds/reads. Articles are readable only via a feed you own.
+// supabase/schema.sql) is what actually restricts each user to their own
+// feeds/reads. Articles are readable only via a feed you own.
 const SUPABASE_URL = 'https://hazclygzhggznitjzeox.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhhemNseWd6aGdnem5pdGp6ZW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyODc0NzksImV4cCI6MjEwMDg2MzQ3OX0.SwhbxtBPUEaoHxTzsis-g2DDJiWGRl5ejRpD9xjn_FM';
 
