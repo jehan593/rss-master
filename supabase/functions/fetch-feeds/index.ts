@@ -16,11 +16,13 @@
 //
 // Storage-bounding: summaries are truncated before insert, articles are
 // upserted (never duplicated) keyed on (feed_id, guid) — but resolved by link
-// first (see fetchOneFeed below) so a guid-scheme change never inserts a
-// duplicate for an article that already exists under a different guid — and
-// after each feed's items are inserted we trim it back down to
-// MAX_ARTICLES_PER_FEED. The daily 30-day retention sweep lives in Postgres
-// (cleanup_old_articles), not here.
+// OR guid first (see fetchOneFeed below), since either can drift independently
+// (guid scheme change, or the feed rewriting links) and matching on only one
+// would insert a duplicate for an article that already exists under the
+// other key — and after each feed's items are inserted we trim it back down
+// to MAX_ARTICLES_PER_FEED. The daily 7-day retention sweep and the total
+// article cap live in Postgres (cleanup_old_articles, cap_total_articles),
+// not here.
 //
 // guid prefers feed-extractor's own entry id (see fetchOneFeed below), but
 // only when it's provably a real <guid>/<id> tag rather than the library's
@@ -145,30 +147,50 @@ async function fetchOneFeed(feed: FeedRow) {
     });
 
   if (rows.length) {
-    // Resolve by link first, not just guid: link is the one thing that never
-    // changes scheme (guid did — see file header), so an existing row here
-    // means "same article, guid key just needs repairing" rather than a new
-    // article to insert. Skipping this and upserting on guid alone would
-    // silently insert a duplicate (unread, no article_reads row) any time a
-    // feed's real guid differs from whatever guid scheme wrote the existing
-    // row — exactly what happened to every article from feeds with a genuine
-    // non-link guid after the dedupe-by-link migration reset all guids to
-    // link and the code then switched back to preferring real guids.
-    const links = rows.map((r) => r.link);
-    const { data: existing, error: lookupError } = await admin
-      .from('articles')
-      .select('id,link,guid')
-      .eq('feed_id', feed.id)
-      .in('link', links);
+    // Some feeds emit the same link twice in one poll (e.g. cross-posted
+    // under a second guid). Only (feed_id, guid) is unique, not (feed_id,
+    // link), so without this both would look "new" below and insert as two
+    // separate rows.
+    const seenLinks = new Set<string>();
+    const dedupedRows = rows.filter((r) => {
+      if (seenLinks.has(r.link)) return false;
+      seenLinks.add(r.link);
+      return true;
+    });
+
+    // Resolve existing rows by link OR guid — not link alone. A stored
+    // article can drift on either axis independently: its guid changes
+    // when the feed's own id scheme changes (see file header), or its link
+    // changes when the feed rewrites URLs (redirects, tracking params,
+    // AMP/non-AMP swaps) while the real <guid>/<id> tag stays put. Matching
+    // on only one silently missed the other case and inserted an unread
+    // duplicate of an already-read article.
+    const links = dedupedRows.map((r) => r.link);
+    const guids = dedupedRows.map((r) => r.guid);
+    const [{ data: byLink, error: linkLookupError }, { data: byGuid, error: guidLookupError }] = await Promise.all([
+      admin.from('articles').select('id,link,guid').eq('feed_id', feed.id).in('link', links),
+      admin.from('articles').select('id,link,guid').eq('feed_id', feed.id).in('guid', guids),
+    ]);
+    const lookupError = linkLookupError || guidLookupError;
     if (lookupError) {
       return { feedId: feed.id, ok: false, reason: `lookup error: ${lookupError.message}` };
     }
-    const existingByLink = new Map((existing || []).map((r) => [r.link, r]));
+    const existingByLink = new Map((byLink || []).map((r) => [r.link, r]));
+    const existingByGuid = new Map((byGuid || []).map((r) => [r.guid, r]));
 
-    const toInsert = rows.filter((r) => !existingByLink.has(r.link));
-    const guidFixups = rows
-      .filter((r) => existingByLink.has(r.link) && existingByLink.get(r.link)!.guid !== r.guid)
-      .map((r) => ({ id: existingByLink.get(r.link)!.id, guid: r.guid }));
+    const toInsert: typeof dedupedRows = [];
+    const fixups: { id: string; guid?: string; link?: string }[] = [];
+    for (const r of dedupedRows) {
+      const match = existingByLink.get(r.link) || existingByGuid.get(r.guid);
+      if (!match) {
+        toInsert.push(r);
+        continue;
+      }
+      const patch: { id: string; guid?: string; link?: string } = { id: match.id };
+      if (match.guid !== r.guid) patch.guid = r.guid;
+      if (match.link !== r.link) patch.link = r.link;
+      if (patch.guid || patch.link) fixups.push(patch);
+    }
 
     if (toInsert.length) {
       const { error } = await admin.from('articles').upsert(toInsert, { onConflict: 'feed_id,guid', ignoreDuplicates: true });
@@ -176,8 +198,8 @@ async function fetchOneFeed(feed: FeedRow) {
         return { feedId: feed.id, ok: false, reason: `upsert error: ${error.message}` };
       }
     }
-    for (const fixup of guidFixups) {
-      await admin.from('articles').update({ guid: fixup.guid }).eq('id', fixup.id);
+    for (const { id, ...patch } of fixups) {
+      await admin.from('articles').update(patch).eq('id', id);
     }
   }
 
