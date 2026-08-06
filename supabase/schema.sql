@@ -121,10 +121,11 @@ create policy "article_reads_delete_own" on article_reads
 --    max_total articles. This is what actually guarantees bounded storage —
 --    the other two rules are hygiene on top of it, not the thing doing the
 --    bounding.
--- 2) 7-day retention: nothing older than a week stays around regardless of
---    volume. In practice this rarely even fires once (1) is in place — a
---    handful of high-volume feeds can fill the total cap in well under 7
---    days, at which point (1) is already the rule doing the trimming.
+-- 2) 7-day retention: nothing stays around more than a week after we first
+--    ingested it, regardless of volume. In practice this rarely even fires
+--    once (1) is in place — a handful of high-volume feeds can fill the
+--    total cap in well under 7 days, at which point (1) is already the rule
+--    doing the trimming.
 -- 3) Per-feed cap: keeps any single very high-volume feed from crowding out
 --    every other feed's articles within the shared total-cap budget.
 create or replace function cap_total_articles(max_total int default 2000)
@@ -140,9 +141,17 @@ returns void language sql security definer set search_path = public as $$
   where a.id = ranked.id and ranked.rn > max_total;
 $$;
 
+-- Keyed on created_at (when we first ingested the row), not published_at
+-- (whatever date the feed itself claims). A feed that keeps older items in
+-- its XML — slow-cadence blogs, evergreen/backlog content, or a feed you
+-- just added with backlog older than a week — would otherwise get those
+-- rows deleted here and then re-inserted as a brand-new unread article on
+-- the very next refresh (the dedup lookup in fetch-feeds can't match against
+-- a row that's gone), which reads to the user as an old, already-read
+-- article "duplicating" itself back in as unread.
 create or replace function cleanup_old_articles()
 returns void language sql security definer set search_path = public as $$
-  delete from articles where published_at < now() - interval '7 days';
+  delete from articles where created_at < now() - interval '7 days';
 $$;
 
 create or replace function cap_articles_per_feed(max_per_feed int default 200)
