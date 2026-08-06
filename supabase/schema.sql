@@ -91,13 +91,24 @@ create policy "articles_select_via_own_feed" on articles
 
 -- ─── ARTICLE READS ────────────────────────────────────────────────────────
 -- Cross-device read/unread state, mirroring habit-tracker's sync model.
--- Cascades on article deletion so this table can never outgrow articles —
--- the retention/cap jobs below automatically bound it too.
+--
+-- Keyed on the article's stable (feed_id, guid) identity, NOT articles.id.
+-- The storage-bounding maintenance below legitimately deletes article rows
+-- (retention, total cap, per-feed cap) — if a feed still serves that item on
+-- a later poll, fetch-feeds has no row left to match against and inserts it
+-- fresh with a new id. Keying reads on articles.id meant that cascade-deleted
+-- the read receipt right along with the row, so the reinserted article came
+-- back unread — reading to the user as an old, already-read article
+-- "duplicating" itself back in. Keying on (feed_id, guid) instead means the
+-- read receipt survives that churn regardless of which maintenance job (or
+-- future one) caused it. No FK to articles.id, so it's now bounded instead
+-- by cleanup_old_read_markers() below rather than cascading.
 create table if not exists article_reads (
   user_id uuid not null references auth.users(id) on delete cascade,
-  article_id uuid not null references articles(id) on delete cascade,
+  feed_id uuid not null references feeds(id) on delete cascade,
+  guid text not null,
   read_at timestamptz not null default now(),
-  primary key (user_id, article_id)
+  primary key (user_id, feed_id, guid)
 );
 
 alter table article_reads enable row level security;
@@ -164,6 +175,16 @@ returns void language sql security definer set search_path = public as $$
   where a.id = ranked.id and ranked.rn > max_per_feed;
 $$;
 
+-- article_reads is no longer FK-cascaded off articles.id (see the table's
+-- own comment above), so it needs its own bound instead of inheriting the
+-- articles table's. 30 days is deliberately much longer than the article
+-- retention window above — it only exists to keep read-marker storage
+-- bounded over the long run, not to make read status "expire".
+create or replace function cleanup_old_read_markers()
+returns void language sql security definer set search_path = public as $$
+  delete from article_reads where read_at < now() - interval '30 days';
+$$;
+
 -- These are maintenance functions invoked only by the pg_cron job below
 -- (which runs as the scheduling role) — they have no business being
 -- callable by anon/authenticated clients. Revoking from PUBLIC alone isn't
@@ -172,11 +193,12 @@ $$;
 revoke execute on function cap_total_articles(int) from public, anon, authenticated;
 revoke execute on function cleanup_old_articles() from public, anon, authenticated;
 revoke execute on function cap_articles_per_feed(int) from public, anon, authenticated;
+revoke execute on function cleanup_old_read_markers() from public, anon, authenticated;
 
 select cron.schedule(
   'cleanup-old-articles-daily',
   '30 3 * * *',
-  $$ select cap_total_articles(2000); select cleanup_old_articles(); select cap_articles_per_feed(200); $$
+  $$ select cap_total_articles(2000); select cleanup_old_articles(); select cap_articles_per_feed(200); select cleanup_old_read_markers(); $$
 );
 
 -- Feed fetching is triggered client-side (on load, on manual refresh, and

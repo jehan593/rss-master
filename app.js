@@ -18,8 +18,16 @@ const REFRESH_MIN_INTERVAL_MS = 60 * 1000; // client-side debounce for the Refre
 // ─── STATE ──────────────────────────────────────────────────────────────────
 let session = null;
 let feeds = [];          // [{id, url, title, site_url, last_fetched_at, error_count, active}]
-let articles = [];       // [{id, feed_id, title, link, summary, published_at}]
-let readIds = new Set(); // article ids marked read
+let articles = [];       // [{id, feed_id, guid, title, link, summary, published_at}]
+// readMarkers is the source of truth for read status: a Set of
+// `feed_id + guid` keys, matching how the server tracks it (see
+// article_reads' schema comment — keyed on that stable identity rather than
+// the article row's id, so read status survives a delete+reinsert of the
+// row). readIds is just a derived Set<article id> kept in sync via
+// recomputeReadIds(), so the many `readIds.has(a.id)` render checks don't
+// need to change.
+let readMarkers = new Set();
+let readIds = new Set(); // article ids marked read — derived from readMarkers, see recomputeReadIds()
 let activeFilter = 'all'; // 'all' or a feed id
 let editingDeleteFeedId = null;
 let lastRefreshAt = 0;
@@ -33,21 +41,30 @@ let feedArticlesHasMore = {}; // feedId -> whether another page might exist
 let loadingMoreArticles = false;
 
 // ─── LOCAL CACHE (offline viewing only — writes always go through Supabase) ──
+function readKey(a) { return a.feed_id + ' ' + a.guid; }
+
+// readIds is a pure function of (articles, readMarkers) — call this any
+// time either changes, instead of mutating readIds directly.
+function recomputeReadIds() {
+  readIds = new Set(articles.filter(a => readMarkers.has(readKey(a))).map(a => a.id));
+}
+
 function loadCache() {
   try {
     const f = localStorage.getItem('rss_feeds_cache');
     const a = localStorage.getItem('rss_articles_cache');
-    const r = localStorage.getItem('rss_reads_cache');
+    const r = localStorage.getItem('rss_read_markers_cache');
     if (f) feeds = JSON.parse(f);
     if (a) articles = JSON.parse(a);
-    if (r) readIds = new Set(JSON.parse(r));
+    if (r) readMarkers = new Set(JSON.parse(r));
   } catch (e) {}
+  recomputeReadIds();
 }
 
 function saveCache() {
   localStorage.setItem('rss_feeds_cache', JSON.stringify(feeds));
   localStorage.setItem('rss_articles_cache', JSON.stringify(articles));
-  localStorage.setItem('rss_reads_cache', JSON.stringify([...readIds]));
+  localStorage.setItem('rss_read_markers_cache', JSON.stringify([...readMarkers]));
 }
 
 // ─── TABS ───────────────────────────────────────────────────────────────────
@@ -278,18 +295,24 @@ function toggleExpand(articleId) {
 }
 
 async function markRead(articleId) {
-  readIds.add(articleId);
+  const a = articles.find(x => x.id === articleId);
+  if (!a) return;
+  readMarkers.add(readKey(a));
+  recomputeReadIds();
   renderArticles();
   renderFeedSidebar();
   saveCache();
   if (!sb || !session) return;
   const { error } = await sb.from('article_reads')
-    .upsert({ user_id: session.user.id, article_id: articleId }, { onConflict: 'user_id,article_id', ignoreDuplicates: true });
+    .upsert({ user_id: session.user.id, feed_id: a.feed_id, guid: a.guid }, { onConflict: 'user_id,feed_id,guid', ignoreDuplicates: true });
   if (error) console.error('markRead failed', error);
 }
 
 async function markUnread(articleId) {
-  readIds.delete(articleId);
+  const a = articles.find(x => x.id === articleId);
+  if (!a) return;
+  readMarkers.delete(readKey(a));
+  recomputeReadIds();
   // Collapse it too: toggleExpand() marks the article being closed as read
   // (see git history), so leaving it expanded would just flip it straight
   // back to read the next time it's collapsed.
@@ -298,21 +321,22 @@ async function markUnread(articleId) {
   renderFeedSidebar();
   saveCache();
   if (!sb || !session) return;
-  const { error } = await sb.from('article_reads').delete().eq('article_id', articleId);
+  const { error } = await sb.from('article_reads').delete().eq('feed_id', a.feed_id).eq('guid', a.guid);
   if (error) console.error('markUnread failed', error);
 }
 
 async function markAllRead() {
   const newlyRead = getVisibleArticles().filter(a => !readIds.has(a.id));
   if (!newlyRead.length) return;
-  newlyRead.forEach(a => readIds.add(a.id));
+  newlyRead.forEach(a => readMarkers.add(readKey(a)));
+  recomputeReadIds();
   renderArticles();
   renderFeedSidebar();
   saveCache();
   showToast('Marked all read');
   if (!sb || !session) return;
-  const rows = newlyRead.map(a => ({ user_id: session.user.id, article_id: a.id }));
-  const { error } = await sb.from('article_reads').upsert(rows, { onConflict: 'user_id,article_id', ignoreDuplicates: true });
+  const rows = newlyRead.map(a => ({ user_id: session.user.id, feed_id: a.feed_id, guid: a.guid }));
+  const { error } = await sb.from('article_reads').upsert(rows, { onConflict: 'user_id,feed_id,guid', ignoreDuplicates: true });
   if (error) console.error('markAllRead failed', error);
 }
 
@@ -643,7 +667,7 @@ async function loadFeeds() {
 async function loadArticles() {
   if (!sb || !session) return;
   const { data, error } = await sb.from('articles')
-    .select('id,feed_id,link,title,summary,published_at')
+    .select('id,feed_id,guid,link,title,summary,published_at')
     .order('published_at', { ascending: false })
     .order('id', { ascending: false })
     .range(0, ALL_ARTICLES_LIMIT - 1);
@@ -659,7 +683,7 @@ async function loadArticles() {
 async function loadArticlesForFeed(feedId) {
   if (!sb || !session) return;
   const { data, error } = await sb.from('articles')
-    .select('id,feed_id,link,title,summary,published_at')
+    .select('id,feed_id,guid,link,title,summary,published_at')
     .eq('feed_id', feedId)
     .order('published_at', { ascending: false })
     .order('id', { ascending: false })
@@ -680,7 +704,7 @@ async function loadMoreArticles() {
   try {
     if (activeFilter === 'all') {
       const { data, error } = await sb.from('articles')
-        .select('id,feed_id,link,title,summary,published_at')
+        .select('id,feed_id,guid,link,title,summary,published_at')
         .order('published_at', { ascending: false })
         .order('id', { ascending: false })
         .range(allArticlesOffset, allArticlesOffset + LOAD_MORE_PAGE_SIZE - 1);
@@ -692,7 +716,7 @@ async function loadMoreArticles() {
       const feedId = activeFilter;
       const offset = feedArticlesOffset[feedId] || 0;
       const { data, error } = await sb.from('articles')
-        .select('id,feed_id,link,title,summary,published_at')
+        .select('id,feed_id,guid,link,title,summary,published_at')
         .eq('feed_id', feedId)
         .order('published_at', { ascending: false })
         .order('id', { ascending: false })
@@ -713,19 +737,21 @@ function mergeArticles(rows) {
   const byId = new Map(articles.map(a => [a.id, a]));
   rows.forEach(r => byId.set(r.id, { ...byId.get(r.id), ...r }));
   articles = [...byId.values()];
+  recomputeReadIds();
 }
 
 async function loadReads() {
   if (!sb || !session) return;
-  const { data, error } = await sb.from('article_reads').select('article_id');
+  const { data, error } = await sb.from('article_reads').select('feed_id,guid');
   if (error) { console.error('loadReads failed', error); return; }
   // Merge rather than replace: a plain replace here can race an in-flight
   // markRead write (or a still-propagating write from another tab/device)
   // and stomp an already-persisted local read back to unread. This only
-  // ever adds ids present in the server response, never removes one for
+  // ever adds markers present in the server response, never removes one for
   // being absent, so it can't undo a local markUnread() either — the same
   // small race window just applies symmetrically to that action too.
-  (data || []).forEach(r => readIds.add(r.article_id));
+  (data || []).forEach(r => readMarkers.add(r.feed_id + ' ' + r.guid));
+  recomputeReadIds();
   saveCache();
   renderArticles();
   renderFeedSidebar();
@@ -791,6 +817,7 @@ async function doSignOut() {
   session = null;
   feeds = [];
   articles = [];
+  readMarkers = new Set();
   readIds = new Set();
   allArticlesOffset = 0;
   allArticlesHasMore = true;
