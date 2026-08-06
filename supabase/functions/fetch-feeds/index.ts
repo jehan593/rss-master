@@ -22,7 +22,11 @@
 // other key — and after each feed's items are inserted we trim it back down
 // to MAX_ARTICLES_PER_FEED. The daily 7-day retention sweep and the total
 // article cap live in Postgres (cleanup_old_articles, cap_total_articles),
-// not here.
+// not here. Retention keys off created_at (ingestion time), not
+// published_at (the feed's own claimed date) — a feed that legitimately
+// serves items older than a week would otherwise get them deleted and then
+// silently re-inserted as a new unread row on the next refresh, which looks
+// to the user like an old, already-read article duplicating itself back in.
 //
 // guid prefers feed-extractor's own entry id (see fetchOneFeed below), but
 // only when it's provably a real <guid>/<id> tag rather than the library's
