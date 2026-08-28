@@ -206,6 +206,28 @@ select cron.schedule(
   $$ select cap_total_articles(2000); select cleanup_old_articles(); select cap_articles_per_feed(200); select cleanup_old_read_markers(); $$
 );
 
+-- ─── BACKFILL / CONVERGENCE (safe to re-run on an already-provisioned DB) ──
+-- This is a single-file schema whose later additions are idempotent, so
+-- running the whole file again on an existing project converges it instead of
+-- erroring: `create table if not exists` won't add a column to a table that
+-- already exists, so the `link` column on article_reads (added after the
+-- table's first deploy) has to be added here explicitly. It lets fetch-feeds
+-- migrate a read marker across a guid drift keyed on the one identity that
+-- survives it — the link. The backfill seeds `link` for markers that already
+-- exist, joining through the article row where it still exists (markers that
+-- outlived their article row via purge+reinsert can't be matched by guid —
+-- they'll simply remain until cleanup_old_read_markers() reclaims them).
+
+alter table article_reads
+  add column if not exists link text;
+
+update article_reads ar
+  set link = a.link
+from articles a
+where ar.feed_id = a.feed_id
+  and ar.guid = a.guid
+  and ar.link is null;
+
 -- Feed fetching is triggered client-side (on load, on manual refresh, and
 -- on feed adding), not by cron. If you're migrating an older deployment of
 -- this project that still has a fetch-feeds cron job scheduled, remove it:
