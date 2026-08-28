@@ -205,6 +205,35 @@ async function fetchOneFeed(feed: FeedRow) {
     for (const { id, ...patch } of fixups) {
       await admin.from('articles').update(patch).eq('id', id);
     }
+
+    // Read markers are keyed on (feed_id, guid), and guid can legitimately
+    // drift: a feed changes its <guid> scheme, or our link-derived fallback
+    // guid moves when the feed rewrites its links. The fixups above keep the
+    // stored article row aligned, but any reader already marked read stays
+    // keyed under the OLD guid — which orphans the marker, so the article
+    // reverts to unread everywhere (and reads as "not read" on fresh devices
+    // even though one device still shows it read from cache). The link is the
+    // one part of the identity that usually survives this churn, so migrate
+    // any markers parked on this feed+link to the current guid. Skip entirely
+    // when nothing was inserted or had its guid changed — that's the common
+    // unchanged poll, and it would otherwise be ~200 no-op UPDATEs per feed.
+    const guidChanged = fixups.some(f => f.guid);
+    if (guidChanged || toInsert.length) {
+      for (const r of dedupedRows) {
+        const { error: migrateErr } = await admin.from('article_reads')
+          .update({ guid: r.guid })
+          .eq('feed_id', feed.id)
+          .eq('link', r.link)
+          .neq('guid', r.guid);
+        // A (user_id, feed_id, guid) PK conflict can only happen if this user
+        // also has a leftover marker under the target guid from a different
+        // (purged) article that once used that guid — vanishingly rare, so
+        // leave both rows alone rather than spreading — or losing — state.
+        if (migrateErr && migrateErr.code !== '23505') {
+          console.log(`read-marker guid migration skipped for ${feed.id}/${r.guid}: ${migrateErr.message}`);
+        }
+      }
+    }
   }
 
   await admin.from('feeds').update({
