@@ -219,7 +219,7 @@ function renderArticleCard(a) {
   const isRead = readIds.has(a.id);
   const meta = `
 <span class="article-meta">
-      <span class="article-feed-badge" style="color:${feedColor(a.feed_id)}"><span class="feed-color-dot" style="background:${feedColor(a.feed_id)}" aria-hidden="true"></span>${escHtml(feedTitle(a.feed_id))}</span>
+      <span class="article-feed-badge" style="color:${feedColor(a.feed_id)}">${escHtml(feedTitle(a.feed_id))}</span>
       <span>${timeAgo(a.published_at)}</span>
       <span>${isRead ? 'Read' : 'Unread'}</span>
     </span>`;

@@ -101,15 +101,17 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .feed-color-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 
 .article-item { padding: 12px; margin-bottom: 12px; background: var(--bg2); border-radius: var(--radius); }
+.article-item.unread { border-left: 3px solid var(--accent); }
 .article-toggle { display: flex; align-items: flex-start; gap: 12px; width: 100%; border: 0; border-radius: 8px; padding: 0; background: transparent; text-align: left; color: inherit; font-weight: 400; }
 .article-unread-dot { width: 6px; height: 6px; margin-top: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 .article-item.read .article-unread-dot { visibility: hidden; }
 .article-body { flex: 1; min-width: 0; }
-.article-title { display: block; font-size: 14px; font-weight: 500; line-height: 1.7; color: var(--text); overflow-wrap: anywhere; }
-.article-item.read .article-title { color: var(--text2); font-weight: 400; }
+.article-title { display: block; font-size: 14px; font-weight: 700; line-height: 1.7; color: var(--text); overflow-wrap: anywhere; }
+.article-item.read .article-title { color: var(--text2); font-weight: 500; opacity: 0.6; }
+.article-item.read .article-meta { opacity: 0.6; }
 .article-toggle:hover .article-title { color: var(--accent); }
 .article-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 11px; }
-.article-feed-badge { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); overflow-wrap: anywhere; max-width: 100%; }
+.article-feed-badge { display: inline-flex; align-items: center; color: var(--accent); overflow-wrap: anywhere; max-width: 100%; }
 .article-content { font-size: 12px; line-height: 1.8; margin: 12px 0 12px 18px; overflow-wrap: anywhere; }
 .article-content p + p { margin-top: 8px; }
 .article-expanded-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: 18px; }
