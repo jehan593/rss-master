@@ -1,8 +1,4 @@
-// ─── SUPABASE SETUP ─────────────────────────────────────────────────────────
-// Fill these in from your Supabase project: Project Settings → API.
-// The anon key is safe to ship client-side — Row Level Security (see
-// supabase/schema.sql) is what actually restricts each user to their own
-// feeds/reads. Articles are readable only via a feed you own.
+// The public key relies on the access rules in supabase/schema.sql.
 const SUPABASE_URL = 'https://hazclygzhggznitjzeox.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhhemNseWd6aGdnem5pdGp6ZW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyODc0NzksImV4cCI6MjEwMDg2MzQ3OX0.SwhbxtBPUEaoHxTzsis-g2DDJiWGRl5ejRpD9xjn_FM';
 
@@ -14,26 +10,15 @@ const ALL_ARTICLES_LIMIT = 400;
 const PER_FEED_ARTICLES_LIMIT = 200; // matches MAX_ARTICLES_PER_FEED server-side
 const LOAD_MORE_PAGE_SIZE = 100;
 const READ_MARKERS_PAGE_SIZE = 500;
-const REFRESH_MIN_INTERVAL_MS = 60 * 1000; // client-side debounce for the Refresh button
+const REFRESH_MIN_INTERVAL_MS = 60 * 1000;
 
-// ─── STATE ──────────────────────────────────────────────────────────────────
 let session = null;
-let feeds = [];          // [{id, url, title, site_url, last_fetched_at, error_count, active}]
-let articles = [];       // [{id, feed_id, guid, title, link, summary, published_at}]
-// readMarkers is the source of truth for read status: a Set of
-// `feed_id + guid` keys, matching how the server tracks it (see
-// article_reads' schema comment — keyed on that stable identity rather than
-// the article row's id, so read status survives a delete+reinsert of the
-// row). readIds is just a derived Set<article id> kept in sync via
-// recomputeReadIds(), so the many `readIds.has(a.id)` render checks don't
-// need to change.
+let feeds = [];
+let articles = [];
+// Stable feed/GUID keys preserve read status when article rows are replaced.
 let readMarkers = new Set();
-let readIds = new Set(); // article ids marked read — derived from readMarkers, see recomputeReadIds()
-// readKeys whose server write is still in flight when loadReads() runs.
-// loadReads() reconciles markers against the server (removing ones that
-// other devices un-marked), but must not clobber a write that hasn't landed
-// yet — a pending add is kept locally even if the server doesn't have it,
-// and a pending remove is not re-added from a stale server snapshot.
+let readIds = new Set();
+// Pending writes must survive refreshes that return older server data.
 let pendingAddReadKeys = new Set();
 let pendingRemoveReadKeys = new Set();
 let readStateVersion = 0;
@@ -41,20 +26,16 @@ let readLoadVersion = 0;
 let activeFilter = 'all'; // 'all' or a feed id
 let editingDeleteFeedId = null;
 let lastRefreshAt = 0;
-let expandedArticleId = null; // at most one article expanded inline at a time
+let expandedArticleId = null;
 
-// ─── PAGINATION ("Load more") ────────────────────────────────────────────────
 let allArticlesOffset = 0;
 let allArticlesHasMore = true;
-let feedArticlesOffset = {}; // feedId -> next range() offset
-let feedArticlesHasMore = {}; // feedId -> whether another page might exist
+let feedArticlesOffset = {};
+let feedArticlesHasMore = {};
 let loadingMoreArticles = false;
 
-// ─── LOCAL CACHE (offline viewing only — writes always go through Supabase) ──
 function readKey(a) { return a.feed_id + ' ' + a.guid; }
 
-// readIds is a pure function of (articles, readMarkers) — call this any
-// time either changes, instead of mutating readIds directly.
 function recomputeReadIds() {
   readIds = new Set(articles.filter(a => readMarkers.has(readKey(a))).map(a => a.id));
 }
@@ -77,17 +58,19 @@ function saveCache() {
   localStorage.setItem('rss_read_markers_cache', JSON.stringify([...readMarkers]));
 }
 
-// ─── TABS ───────────────────────────────────────────────────────────────────
 function switchTab(name, el) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.remove('active');
+    t.removeAttribute('aria-current');
+  });
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   el.classList.add('active');
+  el.setAttribute('aria-current', 'page');
   document.getElementById('section-' + name).classList.add('active');
   if (name === 'feeds') renderManageFeeds();
   if (name === 'articles') renderArticles();
 }
 
-// ─── DATE HELPERS ───────────────────────────────────────────────────────────
 function timeAgo(iso) {
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60000);
@@ -100,68 +83,28 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-// ─── ARTICLES ───────────────────────────────────────────────────────────────
-// Deterministic per-feed color (no server storage, no dependency) — same
-// feed always hashes to the same hue, so it's a stable visual identity
-// across the sidebar, article badges, and unread dots. A continuous hash %
-// 360 let unrelated feeds land a few degrees apart and read as near-duplicates
-// (two different pinks, two different purples); picking from a small fixed
-// set of hues spaced 30° apart guarantees every pair is either the same
-// color or clearly distinct — never "almost the same".
-const FEED_HUES = [195, 225, 255, 285, 315, 345, 15, 45, 75, 105, 135, 165];
-
-function feedHsl(feedId) {
-  let hash = 0;
-  for (let i = 0; i < feedId.length; i++) hash = (hash * 31 + feedId.charCodeAt(i)) >>> 0;
-  const idx = hash % FEED_HUES.length;
-  const h = FEED_HUES[idx];
-  const alt = idx % 2 === 1;
-  return { h, s: alt ? 62 : 55, l: alt ? 70 : 64 };
-}
-
-function feedColor(feedId) {
-  const { h, s, l } = feedHsl(feedId);
-  return `hsl(${h}, ${s}%, ${l}%)`;
-}
-
-// Inline style that tints a whole pill (background/border/text) with a
-// feed's own hue instead of a flat neutral fill, so the pill matches the
-// color dot next to it rather than just having a colored dot inside a gray box.
-function feedTintStyle(feedId, bgAlpha, borderAlpha, textBoost) {
-  const { h, s, l } = feedHsl(feedId);
-  return `background:hsla(${h}, ${s}%, ${l}%, ${bgAlpha}); border-color:hsla(${h}, ${s}%, ${l}%, ${borderAlpha}); color:hsl(${h}, ${Math.min(s + textBoost, 80)}%, ${Math.min(l + textBoost + 2, 85)}%);`;
-}
-
-// Selected feed row in the picker popup.
-function feedActiveStyle(feedId) {
-  return feedTintStyle(feedId, 0.16, 0.5, 10);
-}
-
-// Per-article feed badge, shown on every article card.
-function feedBadgeStyle(feedId) {
-  return feedTintStyle(feedId, 0.14, 0.4, 8);
-}
-
 function renderFeedSidebar() {
   const listEl = document.getElementById('feed-sidebar-list');
   const labelEl = document.getElementById('current-feed-label');
-  if (labelEl) labelEl.textContent = activeFilter === 'all' ? 'All' : feedTitle(activeFilter);
+  if (labelEl) labelEl.textContent = activeFilter === 'all' ? 'All feeds' : feedTitle(activeFilter);
   if (!listEl) return;
+  const searchInput = document.getElementById('feed-sidebar-search');
+  const query = searchInput.value.trim().toLowerCase();
+  document.getElementById('feed-search-clear').hidden = !searchInput.value;
 
   if (!feeds.length) {
-    listEl.innerHTML = `<div class="empty-state" style="padding:30px 10px;"><p style="font-size:13px;">No feeds yet</p></div>`;
+    listEl.innerHTML = `<div class="empty-state"><p>No feeds yet</p></div>`;
     return;
   }
 
   const unreadCountFor = feedId => articles.filter(a => (feedId === 'all' || a.feed_id === feedId) && !readIds.has(a.id)).length;
-  const query = (document.getElementById('feed-sidebar-search')?.value || '').trim().toLowerCase();
   const sorted = [...feeds].sort((a, b) => a.position - b.position)
     .filter(f => !query || feedTitle(f.id).toLowerCase().includes(query));
 
   const allUnread = unreadCountFor('all');
-  let html = `<button class="feed-sidebar-item ${activeFilter === 'all' ? 'active' : ''} ${allUnread ? 'has-unread' : ''}" onclick="setFilter('all')">
-    <span class="feed-color-dot" style="background:var(--accent2)"></span>
-    <span class="fs-name">All</span>
+  let html = `<button class="feed-sidebar-item ${activeFilter === 'all' ? 'active' : ''} ${allUnread ? 'has-unread' : ''}" aria-pressed="${activeFilter === 'all'}" onclick="setFilter('all')">
+    <span class="feed-color-dot" aria-hidden="true"></span>
+    <span class="fs-name">All feeds</span>
     <span class="fs-count">${allUnread}</span>
   </button>`;
 
@@ -169,27 +112,37 @@ function renderFeedSidebar() {
     const count = unreadCountFor(f.id);
     const isActive = activeFilter === f.id;
     return `
-    <button class="feed-sidebar-item ${isActive ? 'active feed-active-tinted' : ''} ${count ? 'has-unread' : ''}" ${isActive ? `style="${feedActiveStyle(f.id)}"` : ''} onclick="setFilter('${f.id}')">
-      <span class="feed-color-dot" style="background:${feedColor(f.id)}"></span>
+    <button class="feed-sidebar-item ${isActive ? 'active' : ''} ${count ? 'has-unread' : ''}" aria-pressed="${isActive}" onclick="setFilter('${f.id}')">
+      <span class="feed-color-dot" aria-hidden="true"></span>
       <span class="fs-name">${escHtml(feedTitle(f.id))}</span>
       <span class="fs-count">${count}</span>
     </button>`;
   }).join('');
 
-  listEl.innerHTML = html;
+  listEl.innerHTML = html + (query && !sorted.length ? '<div class="empty-state"><p>No matching feeds</p></div>' : '');
+}
+
+function clearFeedSearch() {
+  const input = document.getElementById('feed-sidebar-search');
+  input.value = '';
+  renderFeedSidebar();
+  input.focus();
 }
 
 function openFeedSidebar() {
   document.getElementById('feed-sidebar-backdrop').classList.add('open');
-  // The popup is anchored under the switcher button via absolute positioning,
-  // not fixed to the viewport — if the page scrolls while it's open it drags
-  // along and rides up over the sticky header. Lock scroll instead of adding
-  // scroll-tracking JS just to reposition it.
+  document.getElementById('feed-switcher-btn').setAttribute('aria-expanded', 'true');
+  document.getElementById('feed-sidebar-search').focus();
+  // Keep the anchored popup from scrolling over the header.
   document.body.style.overflow = 'hidden';
 }
 
 function closeFeedSidebar() {
-  document.getElementById('feed-sidebar-backdrop').classList.remove('open');
+  const backdrop = document.getElementById('feed-sidebar-backdrop');
+  if (!backdrop.classList.contains('open')) return;
+  backdrop.classList.remove('open');
+  document.getElementById('feed-switcher-btn').setAttribute('aria-expanded', 'false');
+  document.getElementById('feed-switcher-btn').focus();
   document.body.style.overflow = '';
 }
 
@@ -223,21 +176,18 @@ function renderArticles() {
     visible.length ? `${unread} unread of ${visible.length}` : '';
 
   if (!session) {
-    list.innerHTML = `<div class="empty-state"><div class="emoji">📰</div><p>Sign in to get started</p><small>Your feeds and articles sync through your account</small></div>`;
+    list.innerHTML = `<div class="empty-state"><p>Sign in to get started</p><small>Read your feeds on any device.</small></div>`;
     return;
   }
   if (!feeds.length) {
-    list.innerHTML = `<div class="empty-state"><div class="emoji">📰</div><p>No feeds yet</p><small>Go to Feeds to add your first RSS feed</small></div>`;
+    list.innerHTML = `<div class="empty-state"><p>No feeds yet</p><small>Add your first feed in Feeds.</small></div>`;
     return;
   }
   if (!visible.length) {
-    list.innerHTML = `<div class="empty-state"><div class="emoji">✓</div><p>No articles yet</p><small>Hit Refresh, or check back after the next scheduled fetch</small></div>`;
+    list.innerHTML = `<div class="empty-state"><p>No articles yet</p><small>Refresh or check back later.</small></div>`;
     return;
   }
 
-  // Article link/title/summary/fetched-content come from external, untrusted
-  // sources — always run through escHtml/escAttr, never interpolated raw.
-  // a.id is our own DB-generated UUID, so it's safe to inline directly.
   const hasMore = activeFilter === 'all' ? allArticlesHasMore : !!feedArticlesHasMore[activeFilter];
   const loadMoreHtml = hasMore ? `
     <div class="load-more-wrap">
@@ -251,42 +201,37 @@ function renderArticles() {
 
 function renderArticleCard(a) {
   const isRead = readIds.has(a.id);
-  const color = feedColor(a.feed_id);
   const meta = `
-    <div class="article-meta">
-      <span class="article-feed-badge" style="${feedBadgeStyle(a.feed_id)}"><span class="feed-color-dot" style="background:${color}"></span>${escHtml(feedTitle(a.feed_id))}</span>
+    <span class="article-meta">
+      <span class="article-feed-badge">${escHtml(feedTitle(a.feed_id))}</span>
       <span>${timeAgo(a.published_at)}</span>
-    </div>`;
+      <span>${isRead ? 'Read' : 'Unread'}</span>
+    </span>`;
 
   const isExpanded = expandedArticleId === a.id;
 
-  // Same .article-title div in both states (never a link) so the title never
-  // shifts position when toggling — only content appended below moves.
-  // Opening the original article is only ever done via the explicit
-  // "Open original" button in the expanded actions row.
-  const title = `<div class="article-title">${escHtml(a.title)}</div>`;
+  const title = `<span class="article-title">${escHtml(a.title)}</span>`;
 
   const markUnreadBtn = isRead
-    ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); markUnread('${a.id}')">Mark unread</button>`
+    ? `<button class="btn btn-sm btn-ghost" onclick="markUnread('${a.id}')">Mark unread</button>`
     : '';
 
   const expandedExtra = isExpanded ? `
-    <div class="article-content">${formatContentHtml(a.summary || 'No summary available for this article.')}</div>
+    <div class="article-content">${formatContentHtml(a.summary || 'No summary available.')}</div>
     <div class="article-expanded-actions">
-      <a class="btn btn-sm" href="${escAttr(a.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation(); if (!readIds.has('${a.id}')) markRead('${a.id}')">Open original ↗</a>
+      <a class="btn btn-sm" href="${escAttr(a.link)}" target="_blank" rel="noopener noreferrer" onclick="if (!readIds.has('${a.id}')) markRead('${a.id}')">Open original ↗</a>
       ${markUnreadBtn}
-      <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); toggleExpand('${a.id}')">▲ Collapse</button>
+      <button class="btn btn-sm btn-ghost" onclick="toggleExpand('${a.id}')">Collapse</button>
     </div>` : '';
 
   return `
-    <div class="article-item ${isRead ? 'read' : 'unread'} ${isExpanded ? 'expanded' : ''}" onclick="toggleExpand('${a.id}')">
-      <div class="article-unread-dot" style="background:${color}"></div>
-      <div class="article-body">
-        ${title}
-        ${meta}
-        ${expandedExtra}
-      </div>
-    </div>`;
+    <article class="article-item ${isRead ? 'read' : 'unread'} ${isExpanded ? 'expanded' : ''}">
+      <button class="article-toggle" id="article-toggle-${a.id}" aria-expanded="${isExpanded}" onclick="toggleExpand('${a.id}')">
+        <span class="article-unread-dot" aria-hidden="true"></span>
+        <span class="article-body">${title}${meta}</span>
+      </button>
+      ${expandedExtra}
+    </article>`;
 }
 
 function formatContentHtml(text) {
@@ -302,6 +247,7 @@ function toggleExpand(articleId) {
   }
   if (previouslyExpanded && !readIds.has(previouslyExpanded)) markRead(previouslyExpanded);
   renderArticles();
+  document.getElementById('article-toggle-' + articleId)?.focus({ preventScroll: true });
 }
 
 async function markRead(articleId) {
@@ -333,9 +279,7 @@ async function markUnread(articleId) {
   pendingRemoveReadKeys.add(key);
   pendingAddReadKeys.delete(key);
   recomputeReadIds();
-  // Collapse it too: toggleExpand() marks the article being closed as read
-  // (see git history), so leaving it expanded would just flip it straight
-  // back to read the next time it's collapsed.
+  // Leaving it open would mark it read again on the next collapse.
   if (expandedArticleId === articleId) expandedArticleId = null;
   renderArticles();
   renderFeedSidebar();
@@ -370,15 +314,14 @@ async function markAllRead() {
   if (error) console.error('markAllRead failed', error);
 }
 
-// ─── FEEDS (MANAGE) ─────────────────────────────────────────────────────────
 function renderManageFeeds() {
   const list = document.getElementById('manage-feeds-list');
   if (!session) {
-    list.innerHTML = `<div class="empty-state"><div class="emoji">🔒</div><p>Sign in to manage feeds</p></div>`;
+    list.innerHTML = `<div class="empty-state"><p>Sign in to manage feeds</p></div>`;
     return;
   }
   if (!feeds.length) {
-    list.innerHTML = `<div class="empty-state"><div class="emoji">📋</div><p>No feeds yet</p><small>Add a feed URL above to get started</small></div>`;
+    list.innerHTML = `<div class="empty-state"><p>No feeds yet</p><small>Add a feed or website URL above.</small></div>`;
     return;
   }
 
@@ -386,34 +329,32 @@ function renderManageFeeds() {
 
   list.innerHTML = sorted.map((f, i) => {
     const hasError = f.error_count > 0;
-    const stateClass = !f.active ? 'feed-inactive' : hasError ? 'feed-error' : '';
-    let statusText = f.last_fetched_at ? 'Last checked ' + timeAgo(f.last_fetched_at) : 'Not fetched yet';
-    if (!f.active) statusText = 'Disabled after repeated fetch failures';
+    let statusText = f.last_fetched_at ? 'Last checked ' + timeAgo(f.last_fetched_at) : 'Not checked yet';
+    if (!f.active) statusText = 'Paused after repeated errors';
     else if (hasError) statusText += ` · ${f.error_count} failed attempt${f.error_count === 1 ? '' : 's'}`;
 
     const nameHtml = renamingFeedId === f.id
       ? `<div class="rename-row">
-          <input type="text" id="rename-input" value="${escAttr(feedTitle(f.id))}"
+          <input type="text" id="rename-input" aria-label="Feed name" value="${escAttr(feedTitle(f.id))}"
             onkeydown="if(event.key==='Enter')saveRenameFeed('${f.id}'); if(event.key==='Escape')cancelRenameFeed();">
           <button class="btn btn-sm btn-accent" onclick="saveRenameFeed('${f.id}')">Save</button>
-          <button class="btn btn-sm" onclick="cancelRenameFeed()">Cancel</button>
+          <button class="btn btn-sm btn-ghost" onclick="cancelRenameFeed()">Cancel</button>
         </div>`
       : `<div class="name">${escHtml(feedTitle(f.id))}</div>`;
 
     return `
-      <div class="manage-feed-item ${stateClass}">
+      <div class="manage-feed-item">
         <div class="manage-feed-reorder">
           <button ${i === 0 ? 'disabled' : ''} onclick="moveFeed('${f.id}', -1)" aria-label="Move up">▲</button>
           <button ${i === sorted.length - 1 ? 'disabled' : ''} onclick="moveFeed('${f.id}', 1)" aria-label="Move down">▼</button>
         </div>
-        <span class="feed-color-dot" style="background:${feedColor(f.id)}"></span>
         <div class="manage-feed-info">
           ${nameHtml}
           <div class="url">${escHtml(f.url)}</div>
           <div class="status ${!f.active || hasError ? 'error-text' : ''}">${escHtml(statusText)}</div>
         </div>
         <div class="manage-feed-actions">
-          <button class="btn btn-sm" onclick="startRenameFeed('${f.id}')">✎ Rename</button>
+          <button class="btn btn-sm" onclick="startRenameFeed('${f.id}')">Rename</button>
           <button class="btn btn-sm btn-danger" onclick="deleteFeed('${f.id}')">Remove</button>
         </div>
       </div>`;
@@ -425,7 +366,6 @@ function renderManageFeeds() {
   }
 }
 
-// ─── FEED RENAME (client-side display_name — never touched by fetch-feeds) ──
 let renamingFeedId = null;
 
 function startRenameFeed(feedId) {
@@ -480,7 +420,6 @@ async function moveFeed(feedId, direction) {
   renderFeedSidebar();
 }
 
-// ─── OPML IMPORT / EXPORT ────────────────────────────────────────────────────
 function xmlEsc(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
@@ -524,9 +463,7 @@ async function importOpml(event) {
   }
   if (!urls.length) { showToast('No feeds found in that file'); return; }
 
-  // ignoreDuplicates turns this into INSERT ... ON CONFLICT DO NOTHING, so
-  // .select() only returns rows that were actually newly inserted — feeds
-  // already in the list are silently skipped rather than erroring the batch.
+  // Skip existing feeds and return only newly added ones.
   const rows = [...new Set(urls)].map(url => ({ url, user_id: session.user.id }));
   const { data, error } = await sb.from('feeds')
     .upsert(rows, { onConflict: 'user_id,url', ignoreDuplicates: true })
@@ -551,12 +488,6 @@ async function addFeed() {
   if (!url) { showToast('Enter a feed or website URL'); return; }
   if (!/^https?:\/\//i.test(url)) { showToast('URL must start with http:// or https://'); return; }
 
-  // Feed discovery: if the URL isn't already a feed (e.g. a site homepage was
-  // pasted instead of its /feed.xml), fetch-feeds looks for the page's
-  // <link rel="alternate"> feed tags server-side. One match inserts directly;
-  // several show a picker. Best-effort — if discovery itself fails to run,
-  // just add the URL as typed and let normal per-feed error handling surface
-  // any real problem.
   const addBtn = document.getElementById('add-feed-btn');
   if (addBtn) { addBtn.disabled = true; addBtn.textContent = 'Finding feed…'; }
   try {
@@ -572,9 +503,10 @@ async function addFeed() {
     }
   } catch (e) {
     console.error('feed discovery failed', e);
+    // A direct feed URL may still work when discovery fails.
     await insertFeed(url);
   } finally {
-    if (addBtn) { addBtn.disabled = false; addBtn.textContent = '+ Add Feed'; }
+    if (addBtn) { addBtn.disabled = false; addBtn.textContent = 'Add feed'; }
   }
 }
 
@@ -598,7 +530,6 @@ async function insertFeed(feedUrl) {
   refreshNow({ silent: true });
 }
 
-// ─── FEED PICKER (when discovery finds multiple feeds on one page) ─────────
 let pendingFeedCandidates = [];
 
 function openFeedPicker(candidates) {
@@ -608,12 +539,12 @@ function openFeedPicker(candidates) {
       <div class="fp-title">${escHtml(c.title)}</div>
       <div class="fp-url">${escHtml(c.url)}</div>
     </button>`).join('');
-  document.getElementById('feed-picker-backdrop').classList.add('open');
+  openModal('feed-picker-backdrop');
 }
 
 function closeFeedPicker(e) {
   if (!e || e.target.id === 'feed-picker-backdrop')
-    document.getElementById('feed-picker-backdrop').classList.remove('open');
+    closeModal('feed-picker-backdrop');
 }
 
 async function choosePendingFeed(i) {
@@ -627,7 +558,7 @@ function deleteFeed(id) {
   if (!feed) return;
   editingDeleteFeedId = id;
   document.getElementById('confirm-feed-name').textContent = feedTitle(feed.id);
-  document.getElementById('confirm-modal-backdrop').classList.add('open');
+  openModal('confirm-modal-backdrop');
   document.getElementById('confirm-delete-btn').onclick = doDeleteFeed;
 }
 
@@ -651,22 +582,21 @@ async function doDeleteFeed() {
 
 function closeConfirmModal(e) {
   if (!e || e.target.id === 'confirm-modal-backdrop')
-    document.getElementById('confirm-modal-backdrop').classList.remove('open');
+    closeModal('confirm-modal-backdrop');
 }
 
-// ─── REFRESH (invoke the fetch-feeds edge function on demand) ───────────────
 async function refreshNow(opts) {
   const silent = opts && opts.silent;
   if (!sb || !session) { if (!silent) { showToast('Sign in first'); openAuthModal(); } return; }
   const now = Date.now();
   if (now - lastRefreshAt < REFRESH_MIN_INTERVAL_MS) {
-    if (!silent) showToast('Already refreshed recently — try again in a bit');
+    if (!silent) showToast('Please wait a minute before refreshing again');
     return;
   }
   lastRefreshAt = now;
 
   const btn = document.getElementById('refresh-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⟳ Refreshing…'; }
+  if (btn) { btn.disabled = true; btn.setAttribute('aria-label', 'Refreshing'); btn.setAttribute('aria-busy', 'true'); }
 
   try {
     const { error } = await sb.functions.invoke('fetch-feeds');
@@ -674,20 +604,14 @@ async function refreshNow(opts) {
     if (!silent) showToast('Refreshed');
   } catch (e) {
     console.error('refreshNow failed', e);
-    if (!silent) showToast('Refresh failed — will retry automatically later');
+    if (!silent) showToast('Refresh failed. Try again later.');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⟳ Refresh'; }
-    // The edge function's writes land shortly after it responds — give it a
-    // moment, then pull the new rows down. loadReads() comes too: a refresh
-    // may have migrated read markers across a guid drift (see fetch-feeds),
-    // and articles just landed under their freshest guids, so the local
-    // marker set must be reconciled against the server again or an already-
-    // read article briefly shows unread.
+    if (btn) { btn.disabled = false; btn.setAttribute('aria-label', 'Refresh'); btn.removeAttribute('aria-busy'); }
+    // Allow server writes to settle, including read markers moved to new GUIDs.
     setTimeout(() => { loadFeeds(); loadArticles(); loadReads(); }, 2000);
   }
 }
 
-// ─── DATA LOADING ───────────────────────────────────────────────────────────
 async function loadFeeds() {
   if (!sb || !session) return;
   const { data, error } = await sb.from('feeds').select('*').order('position', { ascending: true });
@@ -796,13 +720,7 @@ async function loadReads() {
     offset += data.length;
   }
 
-  // Reconcile readMarkers to the server's authoritative list (this is what
-  // makes a markUnread on one device actually unmark on every other device
-  // — merge-only loadReads kept the stale local marker forever, so device B
-  // showed "read" content device A had un-read). Two exceptions, both for
-  // writes still in flight (see the pendingRead* sets above):
-  //   - don't drop a local marker whose add hasn't committed yet
-  //   - don't re-add a marker whose remove hasn't committed yet
+  // Accept other devices' changes while preserving unfinished local writes.
   for (const key of pendingAddReadKeys) {
     if (readMarkers.has(key)) serverKeys.add(key);
   }
@@ -816,7 +734,6 @@ async function loadReads() {
   renderFeedSidebar();
 }
 
-// ─── AUTH ───────────────────────────────────────────────────────────────────
 function isSignedIn() { return !!session; }
 
 function updateAccountUI() {
@@ -832,12 +749,12 @@ function updateAccountUI() {
 function openAuthModal() {
   document.getElementById('auth-error').textContent = '';
   updateAuthModalState();
-  document.getElementById('auth-modal-backdrop').classList.add('open');
+  openModal('auth-modal-backdrop');
 }
 
 function closeAuthModal(e) {
   if (!e || e.target.id === 'auth-modal-backdrop')
-    document.getElementById('auth-modal-backdrop').classList.remove('open');
+    closeModal('auth-modal-backdrop');
 }
 
 function onAuthEmailInput() {
@@ -849,7 +766,7 @@ function updateAuthModalState() {
   document.getElementById('auth-signed-out').style.display = connected ? 'none' : 'block';
   document.getElementById('auth-signed-in').style.display = connected ? 'block' : 'none';
   const saveBtn = document.getElementById('auth-save-btn');
-  saveBtn.textContent = connected ? 'Sign out' : 'Send magic link';
+  saveBtn.textContent = connected ? 'Sign out' : 'Send sign-in link';
   saveBtn.onclick = connected ? doSignOut : sendMagicLink;
   if (connected) {
     document.getElementById('auth-status-text').textContent = 'Signed in as ' + session.user.email;
@@ -859,7 +776,7 @@ function updateAuthModalState() {
 async function sendMagicLink() {
   const errEl = document.getElementById('auth-error');
   errEl.textContent = '';
-  if (!sb) { errEl.textContent = 'Sign-in isn’t configured — missing Supabase project URL/key.'; return; }
+  if (!sb) { errEl.textContent = 'Sign-in is unavailable. Please try again later.'; return; }
   const email = document.getElementById('auth-email').value.trim();
   if (!email) { errEl.textContent = 'Enter your email address.'; return; }
 
@@ -868,7 +785,7 @@ async function sendMagicLink() {
   const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
   btn.disabled = false;
   if (error) { errEl.textContent = error.message; return; }
-  showToast('Magic link sent — check your email');
+  showToast('Check your email for the sign-in link');
 }
 
 async function doSignOut() {
@@ -922,18 +839,14 @@ async function onSignedIn() {
   renderArticles();
   renderManageFeeds();
   renderFeedSidebar();
-  // No more server-side cron — pull fresh articles ourselves whenever the app loads.
   refreshNow({ silent: true });
 }
 
-// Pick up changes from other tabs/devices when this tab regains focus —
-// a plain DB read, not a feed fetch (that only happens on load, manual
-// refresh, and feed adding — see onSignedIn/refreshNow/addFeed/importOpml).
+// Sync other devices' changes without fetching the feeds again.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && isSignedIn()) { loadFeeds(); loadArticles(); loadReads(); }
 });
 
-// ─── UTILS ───────────────────────────────────────────────────────────────────
 function escHtml(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -946,9 +859,46 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2000);
 }
 
-// ─── INIT ────────────────────────────────────────────────────────────────────
+function openModal(id) {
+  closeFeedSidebar();
+  const backdrop = document.getElementById(id);
+  backdrop.returnFocus = document.activeElement;
+  backdrop.classList.add('open');
+  document.querySelector('header').inert = true;
+  document.querySelector('main').inert = true;
+  document.body.style.overflow = 'hidden';
+  const target = [...backdrop.querySelectorAll('input, button')].find(el => !el.disabled && el.getClientRects().length);
+  (target || backdrop.querySelector('[role="dialog"]')).focus();
+}
+
+function closeModal(id) {
+  const backdrop = document.getElementById(id);
+  if (!backdrop.classList.contains('open')) return;
+  backdrop.classList.remove('open');
+  const anotherModal = document.querySelector('.open > [role="dialog"]');
+  document.querySelector('header').inert = !!anotherModal;
+  document.querySelector('main').inert = !!anotherModal;
+  document.body.style.overflow = anotherModal ? 'hidden' : '';
+  const target = backdrop.returnFocus;
+  if (target?.isConnected && !target.disabled) target.focus();
+  else (anotherModal || document.querySelector('.tab.active')).focus();
+}
+
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeConfirmModal(); closeFeedPicker(); closeFeedSidebar(); }
+  if (e.key === 'Escape') { closeConfirmModal(); closeFeedPicker(); closeAuthModal(); closeFeedSidebar(); }
+  if (e.key !== 'Tab') return;
+  const popup = document.querySelector('.open > [role="dialog"], #feed-sidebar-backdrop.open .feed-sidebar-popup');
+  if (!popup) return;
+  const controls = [...popup.querySelectorAll('button, input, a[href], [tabindex="0"]')]
+    .filter(el => !el.disabled && el.getClientRects().length);
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  if (!first) { e.preventDefault(); return; }
+  if (e.shiftKey && (document.activeElement === first || !controls.includes(document.activeElement))) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && (document.activeElement === last || !controls.includes(document.activeElement))) {
+    e.preventDefault(); first.focus();
+  }
 });
 
 loadCache();
