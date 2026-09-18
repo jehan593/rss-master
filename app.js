@@ -13,6 +13,7 @@ const sb = (window.supabase && SUPABASE_URL.startsWith('http') && !SUPABASE_URL.
 const ALL_ARTICLES_LIMIT = 400;
 const PER_FEED_ARTICLES_LIMIT = 200; // matches MAX_ARTICLES_PER_FEED server-side
 const LOAD_MORE_PAGE_SIZE = 100;
+const READ_MARKERS_PAGE_SIZE = 500;
 const REFRESH_MIN_INTERVAL_MS = 60 * 1000; // client-side debounce for the Refresh button
 
 // ─── STATE ──────────────────────────────────────────────────────────────────
@@ -35,6 +36,8 @@ let readIds = new Set(); // article ids marked read — derived from readMarkers
 // and a pending remove is not re-added from a stale server snapshot.
 let pendingAddReadKeys = new Set();
 let pendingRemoveReadKeys = new Set();
+let readStateVersion = 0;
+let readLoadVersion = 0;
 let activeFilter = 'all'; // 'all' or a feed id
 let editingDeleteFeedId = null;
 let lastRefreshAt = 0;
@@ -304,6 +307,7 @@ function toggleExpand(articleId) {
 async function markRead(articleId) {
   const a = articles.find(x => x.id === articleId);
   if (!a) return;
+  readStateVersion++;
   const key = readKey(a);
   readMarkers.add(key);
   pendingAddReadKeys.add(key);
@@ -315,6 +319,7 @@ async function markRead(articleId) {
   if (!sb || !session) { pendingAddReadKeys.delete(key); return; }
   const { error } = await sb.from('article_reads')
     .upsert({ user_id: session.user.id, feed_id: a.feed_id, guid: a.guid, link: a.link }, { onConflict: 'user_id,feed_id,guid', ignoreDuplicates: true });
+  readStateVersion++;
   pendingAddReadKeys.delete(key);
   if (error) console.error('markRead failed', error);
 }
@@ -322,6 +327,7 @@ async function markRead(articleId) {
 async function markUnread(articleId) {
   const a = articles.find(x => x.id === articleId);
   if (!a) return;
+  readStateVersion++;
   const key = readKey(a);
   readMarkers.delete(key);
   pendingRemoveReadKeys.add(key);
@@ -336,6 +342,7 @@ async function markUnread(articleId) {
   saveCache();
   if (!sb || !session) { pendingRemoveReadKeys.delete(key); return; }
   const { error } = await sb.from('article_reads').delete().eq('user_id', session.user.id).eq('feed_id', a.feed_id).eq('guid', a.guid);
+  readStateVersion++;
   pendingRemoveReadKeys.delete(key);
   if (error) console.error('markUnread failed', error);
 }
@@ -343,6 +350,7 @@ async function markUnread(articleId) {
 async function markAllRead() {
   const newlyRead = getVisibleArticles().filter(a => !readIds.has(a.id));
   if (!newlyRead.length) return;
+  readStateVersion++;
   newlyRead.forEach(a => {
     const key = readKey(a);
     readMarkers.add(key);
@@ -357,6 +365,7 @@ async function markAllRead() {
   if (!sb || !session) { newlyRead.forEach(a => pendingAddReadKeys.delete(readKey(a))); return; }
   const rows = newlyRead.map(a => ({ user_id: session.user.id, feed_id: a.feed_id, guid: a.guid, link: a.link }));
   const { error } = await sb.from('article_reads').upsert(rows, { onConflict: 'user_id,feed_id,guid', ignoreDuplicates: true });
+  readStateVersion++;
   newlyRead.forEach(a => pendingAddReadKeys.delete(readKey(a)));
   if (error) console.error('markAllRead failed', error);
 }
@@ -767,8 +776,25 @@ function mergeArticles(rows) {
 
 async function loadReads() {
   if (!sb || !session) return;
-  const { data, error } = await sb.from('article_reads').select('feed_id,guid');
-  if (error) { console.error('loadReads failed', error); return; }
+  const userId = session.user.id;
+  const stateVersion = readStateVersion;
+  const loadVersion = ++readLoadVersion;
+  const serverKeys = new Set();
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await sb.from('article_reads')
+      .select('feed_id,guid')
+      .eq('user_id', userId)
+      .order('feed_id', { ascending: true })
+      .order('guid', { ascending: true })
+      .range(offset, offset + READ_MARKERS_PAGE_SIZE - 1);
+    if (error) { console.error('loadReads failed', error); return; }
+    if (session?.user.id !== userId || stateVersion !== readStateVersion || loadVersion !== readLoadVersion) return;
+    if (!data?.length) break;
+    data.forEach(r => serverKeys.add(r.feed_id + ' ' + r.guid));
+    offset += data.length;
+  }
 
   // Reconcile readMarkers to the server's authoritative list (this is what
   // makes a markUnread on one device actually unmark on every other device
@@ -777,7 +803,6 @@ async function loadReads() {
   // writes still in flight (see the pendingRead* sets above):
   //   - don't drop a local marker whose add hasn't committed yet
   //   - don't re-add a marker whose remove hasn't committed yet
-  const serverKeys = new Set((data || []).map(r => r.feed_id + ' ' + r.guid));
   for (const key of pendingAddReadKeys) {
     if (readMarkers.has(key)) serverKeys.add(key);
   }
@@ -855,6 +880,8 @@ async function doSignOut() {
   readIds = new Set();
   pendingAddReadKeys = new Set();
   pendingRemoveReadKeys = new Set();
+  readStateVersion++;
+  readLoadVersion++;
   allArticlesOffset = 0;
   allArticlesHasMore = true;
   feedArticlesOffset = {};
