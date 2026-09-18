@@ -109,7 +109,7 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .article-item.read .article-title { color: var(--text2); font-weight: 400; }
 .article-toggle:hover .article-title { color: var(--accent); }
 .article-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 11px; }
-.article-feed-badge { color: var(--accent); overflow-wrap: anywhere; }
+.article-feed-badge { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); overflow-wrap: anywhere; max-width: 100%; }
 .article-content { font-size: 12px; line-height: 1.8; margin: 12px 0 12px 18px; overflow-wrap: anywhere; }
 .article-content p + p { margin-top: 8px; }
 .article-expanded-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: 18px; }
