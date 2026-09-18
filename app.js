@@ -83,6 +83,22 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+const FEED_HUES = [195, 225, 255, 285, 315, 345, 15, 45, 75, 105, 135, 165];
+
+function feedHsl(feedId) {
+  let hash = 0;
+  for (let i = 0; i < feedId.length; i++) hash = (hash * 31 + feedId.charCodeAt(i)) >>> 0;
+  const idx = hash % FEED_HUES.length;
+  const h = FEED_HUES[idx];
+  const alt = idx % 2 === 1;
+  return { h, s: alt ? 62 : 55, l: alt ? 70 : 64 };
+}
+
+function feedColor(feedId) {
+  const { h, s, l } = feedHsl(feedId);
+  return `hsl(${h}, ${s}%, ${l}%)`;
+}
+
 function renderFeedSidebar() {
   const listEl = document.getElementById('feed-sidebar-list');
   const labelEl = document.getElementById('current-feed-label');
@@ -112,8 +128,8 @@ function renderFeedSidebar() {
     const count = unreadCountFor(f.id);
     const isActive = activeFilter === f.id;
     return `
-    <button class="feed-sidebar-item ${isActive ? 'active' : ''} ${count ? 'has-unread' : ''}" aria-pressed="${isActive}" onclick="setFilter('${f.id}')">
-      <span class="feed-color-dot" aria-hidden="true"></span>
+<button class="feed-sidebar-item ${isActive ? 'active' : ''} ${count ? 'has-unread' : ''}" aria-pressed="${isActive}" onclick="setFilter('${f.id}')">
+      <span class="feed-color-dot" style="background:${feedColor(f.id)}" aria-hidden="true"></span>
       <span class="fs-name">${escHtml(feedTitle(f.id))}</span>
       <span class="fs-count">${count}</span>
     </button>`;
@@ -202,8 +218,8 @@ function renderArticles() {
 function renderArticleCard(a) {
   const isRead = readIds.has(a.id);
   const meta = `
-    <span class="article-meta">
-      <span class="article-feed-badge">${escHtml(feedTitle(a.feed_id))}</span>
+<span class="article-meta">
+      <span class="article-feed-badge" style="color:${feedColor(a.feed_id)}"><span class="feed-color-dot" style="background:${feedColor(a.feed_id)}" aria-hidden="true"></span>${escHtml(feedTitle(a.feed_id))}</span>
       <span>${timeAgo(a.published_at)}</span>
       <span>${isRead ? 'Read' : 'Unread'}</span>
     </span>`;
@@ -227,7 +243,7 @@ function renderArticleCard(a) {
   return `
     <article class="article-item ${isRead ? 'read' : 'unread'} ${isExpanded ? 'expanded' : ''}">
       <button class="article-toggle" id="article-toggle-${a.id}" aria-expanded="${isExpanded}" onclick="toggleExpand('${a.id}')">
-        <span class="article-unread-dot" aria-hidden="true"></span>
+        <span class="article-unread-dot" style="background:${feedColor(a.feed_id)}" aria-hidden="true"></span>
         <span class="article-body">${title}${meta}</span>
       </button>
       ${expandedExtra}
@@ -348,6 +364,7 @@ function renderManageFeeds() {
           <button ${i === 0 ? 'disabled' : ''} onclick="moveFeed('${f.id}', -1)" aria-label="Move up">▲</button>
           <button ${i === sorted.length - 1 ? 'disabled' : ''} onclick="moveFeed('${f.id}', 1)" aria-label="Move down">▼</button>
         </div>
+        <span class="feed-color-dot" style="background:${feedColor(f.id)}" aria-hidden="true"></span>
         <div class="manage-feed-info">
           ${nameHtml}
           <div class="url">${escHtml(f.url)}</div>
