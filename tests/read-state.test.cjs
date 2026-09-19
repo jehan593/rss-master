@@ -156,3 +156,50 @@ test('a complete empty response reconciles articles marked unread on another dev
   await run('loadReads()');
   assert.equal(run("readIds.has('article-1')"), false);
 });
+
+test('drops cached articles from a feed removed on another device', () => {
+  const { run, cache } = setup();
+  run(`
+    feeds = [{ id: 'feed-1', title: 'Kept' }];
+    articles = [
+      { id: 'a1', feed_id: 'feed-1', guid: 'g1', link: 'https://example.com/1' },
+      { id: 'a2', feed_id: 'feed-removed', guid: 'g2', link: 'https://example.com/2' },
+    ];
+    readMarkers.add('feed-removed g2');
+    pendingAddReadKeys.add('feed-removed g2');
+    pendingAddReadKeys.add('feed-1 g9');
+    pendingRemoveReadKeys.add('feed-removed g2');
+    feedArticlesOffset['feed-removed'] = 100;
+    feedArticlesHasMore['feed-removed'] = true;
+    activeFilter = 'feed-removed';
+  `);
+  run('dropOrphanedArticles()');
+  // The deleted feed's articles disappear instead of rendering as "Unknown feed".
+  assert.equal(run('articles.length'), 1);
+  assert.equal(run("articles[0].feed_id"), 'feed-1');
+  // Their read markers and pending writes are scrubbed; real ones survive.
+  assert.equal(run("readMarkers.has('feed-removed g2')"), false);
+  assert.equal(run("pendingAddReadKeys.has('feed-removed g2')"), false);
+  assert.equal(run("pendingAddReadKeys.has('feed-1 g9')"), true);
+  assert.equal(run("pendingRemoveReadKeys.has('feed-removed g2')"), false);
+  // Pagination state and the active filter no longer point at the dead feed.
+  assert.equal(run("'feed-removed' in feedArticlesOffset"), false);
+  assert.equal(run("'feed-removed' in feedArticlesHasMore"), false);
+  assert.equal(run('activeFilter'), 'all');
+  // The cleaned article list is persisted to the offline cache.
+  assert.equal(JSON.parse(cache.get('rss_articles_cache')).length, 1);
+});
+
+test('dropOrphanedArticles is a no-op when every cached article still has a feed', () => {
+  const { run } = setup();
+  run(`
+    feeds = [{ id: 'feed-1', title: 'Kept' }];
+    articles = [{ id: 'a1', feed_id: 'feed-1', guid: 'g1', link: 'https://example.com/1' }];
+    readMarkers.add('feed-1 g1');
+    activeFilter = 'feed-1';
+  `);
+  run('dropOrphanedArticles()');
+  assert.equal(run('articles.length'), 1);
+  assert.equal(run("readMarkers.has('feed-1 g1')"), true);
+  assert.equal(run('activeFilter'), 'feed-1');
+});
