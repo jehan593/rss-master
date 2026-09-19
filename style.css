@@ -97,9 +97,9 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .feed-sidebar-item.active { color: var(--accent); }
 .fs-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fs-count { min-width: 24px; padding: 0 4px; font-size: 11px; text-align: center; }
-.feed-sidebar-item.has-unread .fs-name, .feed-sidebar-item.has-unread .fs-count { font-weight: 700; }
-.feed-sidebar-item.has-unread .fs-count { color: var(--accent); }
-.feed-sidebar-item.has-unread .feed-color-dot { width: 8px; height: 8px; }
+.feed-sidebar-item.has-unread .fs-name { color: var(--text); font-weight: 900; }
+.feed-sidebar-item.has-unread .fs-count { color: var(--accent); font-size: 12px; font-weight: 900; }
+.feed-sidebar-item.has-unread .feed-color-dot { width: 9px; height: 9px; }
 .feed-color-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 
 .article-item { padding: 12px; margin-bottom: 12px; background: var(--bg2); border-radius: var(--radius); }
