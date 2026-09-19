@@ -634,6 +634,10 @@ async function loadFeeds() {
   const { data, error } = await sb.from('feeds').select('*').order('position', { ascending: true });
   if (error) { console.error('loadFeeds failed', error); return; }
   feeds = data || [];
+  // Feed list is authoritative: drop cached articles whose feed no longer
+  // exists (e.g. removed on another device). Only after a successful load, so
+  // a failed fetch never wipes the offline cache.
+  dropOrphanedArticles();
   saveCache();
   renderFeedSidebar();
   renderManageFeeds();
@@ -713,6 +717,44 @@ function mergeArticles(rows) {
   rows.forEach(r => byId.set(r.id, { ...byId.get(r.id), ...r }));
   articles = [...byId.values()];
   recomputeReadIds();
+}
+
+// A feed removed on another device cascades its rows away server-side, but this
+// device's cache (and any in-flight marker writes) can still reference the old
+// feed id. mergeArticles() intentionally never deletes rows it didn't see, so
+// without this those leftovers would keep rendering as "Unknown feed" — and,
+// once their read markers are replaced from the server, as freshly unread.
+function dropOrphanedArticles() {
+  const knownFeedIds = new Set(feeds.map(f => f.id));
+  const kept = articles.filter(a => knownFeedIds.has(a.feed_id));
+  if (kept.length === articles.length) return;
+  articles = kept;
+
+  // Markers and pending writes for rows that no longer exist can never match a
+  // live feed again (re-adding the same URL gets a new feed id), so drop them
+  // too — they would otherwise fail writes or linger in the cached marker set.
+  const feedOf = key => key.includes(' ') ? key.slice(0, key.indexOf(' ')) : key;
+  for (const key of readMarkers) {
+    if (!knownFeedIds.has(feedOf(key))) readMarkers.delete(key);
+  }
+  for (const key of pendingAddReadKeys) {
+    if (!knownFeedIds.has(feedOf(key))) pendingAddReadKeys.delete(key);
+  }
+  for (const key of pendingRemoveReadKeys) {
+    if (!knownFeedIds.has(feedOf(key))) pendingRemoveReadKeys.delete(key);
+  }
+  for (const feedId of Object.keys(feedArticlesOffset)) {
+    if (!knownFeedIds.has(feedId)) delete feedArticlesOffset[feedId];
+  }
+  for (const feedId of Object.keys(feedArticlesHasMore)) {
+    if (!knownFeedIds.has(feedId)) delete feedArticlesHasMore[feedId];
+  }
+  if (activeFilter !== 'all' && !knownFeedIds.has(activeFilter)) activeFilter = 'all';
+
+  recomputeReadIds();
+  saveCache();
+  renderFeedSidebar();
+  renderArticles();
 }
 
 async function loadReads() {
