@@ -148,7 +148,7 @@ function clearFeedSearch() {
 function openFeedSidebar() {
   document.getElementById('feed-sidebar-backdrop').classList.add('open');
   document.getElementById('feed-switcher-btn').setAttribute('aria-expanded', 'true');
-  document.getElementById('feed-sidebar-search').focus();
+  document.querySelector('.feed-sidebar-popup').focus();
   // Keep the anchored popup from scrolling over the header.
   document.body.style.overflow = 'hidden';
 }
