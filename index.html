@@ -47,7 +47,7 @@
         <button class="btn feed-switcher-btn" id="feed-switcher-btn" aria-expanded="false" aria-controls="feed-sidebar-backdrop" onclick="openFeedSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span id="current-feed-label">All feeds</span></button>
         <div id="feed-sidebar-backdrop">
           <div class="feed-sidebar-catcher" onclick="closeFeedSidebar()"></div>
-          <div class="feed-sidebar-popup">
+          <div class="feed-sidebar-popup" tabindex="-1">
             <div class="feed-search-wrap">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg>
               <input type="text" class="feed-sidebar-search" id="feed-sidebar-search" aria-label="Search feeds" placeholder="Search feeds…" oninput="renderFeedSidebar()">
