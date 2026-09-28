@@ -179,6 +179,7 @@ function setFilter(filter) {
   renderFeedSidebar();
   renderArticles();
   closeFeedSidebar();
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   if (filter !== 'all' && !articles.some(a => a.feed_id === filter && a._loadedForFeed)) {
     loadArticlesForFeed(filter);
   }
@@ -1060,3 +1061,11 @@ renderFeedSidebar();
 renderArticles();
 renderManageFeeds();
 initAuth();
+
+// Keep the article controls directly below the header at any screen/font size.
+const pageHeader = document.querySelector('header');
+function updateHeaderHeight() {
+  document.documentElement.style.setProperty('--header-height', `${pageHeader.getBoundingClientRect().height}px`);
+}
+updateHeaderHeight();
+new ResizeObserver(updateHeaderHeight).observe(pageHeader);
