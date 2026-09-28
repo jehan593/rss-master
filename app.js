@@ -23,6 +23,10 @@ let pendingAddReadKeys = new Set();
 let pendingRemoveReadKeys = new Set();
 let readStateVersion = 0;
 let readLoadVersion = 0;
+let readWriteQueue = Promise.resolve();
+const readWriteTokens = new Map();
+const confirmedReadState = new Map();
+let articleLoadVersion = 0;
 let activeFilter = 'all'; // 'all' or a feed id
 let editingDeleteFeedId = null;
 let lastRefreshAt = 0;
@@ -41,7 +45,9 @@ function recomputeReadIds() {
 }
 
 function loadCache() {
+  if (!session) return;
   try {
+    if (localStorage.getItem('rss_cache_user') !== session.user.id) return;
     const f = localStorage.getItem('rss_feeds_cache');
     const a = localStorage.getItem('rss_articles_cache');
     const r = localStorage.getItem('rss_read_markers_cache');
@@ -53,9 +59,15 @@ function loadCache() {
 }
 
 function saveCache() {
-  localStorage.setItem('rss_feeds_cache', JSON.stringify(feeds));
-  localStorage.setItem('rss_articles_cache', JSON.stringify(articles));
-  localStorage.setItem('rss_read_markers_cache', JSON.stringify([...readMarkers]));
+  try {
+    localStorage.setItem('rss_cache_user', session?.user.id || '');
+    localStorage.setItem('rss_feeds_cache', JSON.stringify(feeds));
+    localStorage.setItem('rss_articles_cache', JSON.stringify(articles));
+    localStorage.setItem('rss_read_markers_cache', JSON.stringify([...readMarkers]));
+  } catch (error) {
+    // A full/disabled browser cache must not prevent the subsequent server write.
+    console.error('Offline cache unavailable', error);
+  }
 }
 
 function switchTab(name, el) {
@@ -235,7 +247,7 @@ function renderArticleCard(a) {
   const expandedExtra = isExpanded ? `
     <div class="article-content">${formatContentHtml(a.summary || 'No summary available.')}</div>
     <div class="article-expanded-actions">
-      <a class="btn btn-sm" href="${escAttr(a.link)}" target="_blank" rel="noopener noreferrer" onclick="if (!readIds.has('${a.id}')) markRead('${a.id}')">Open original ↗</a>
+      <a class="btn btn-sm" href="${escAttr(safeArticleUrl(a.link))}" target="_blank" rel="noopener noreferrer" onclick="if (!readIds.has('${a.id}')) markRead('${a.id}')">Open original ↗</a>
       ${markUnreadBtn}
       <button class="btn btn-sm btn-ghost" onclick="toggleExpand('${a.id}')">Collapse</button>
     </div>` : '';
@@ -279,11 +291,7 @@ async function markRead(articleId) {
   renderFeedSidebar();
   saveCache();
   if (!sb || !session) { pendingAddReadKeys.delete(key); return; }
-  const { error } = await sb.from('article_reads')
-    .upsert({ user_id: session.user.id, feed_id: a.feed_id, guid: a.guid, link: a.link }, { onConflict: 'user_id,feed_id,guid', ignoreDuplicates: true });
-  readStateVersion++;
-  pendingAddReadKeys.delete(key);
-  if (error) console.error('markRead failed', error);
+  await saveReadChanges([a], true);
 }
 
 async function markUnread(articleId) {
@@ -301,10 +309,7 @@ async function markUnread(articleId) {
   renderFeedSidebar();
   saveCache();
   if (!sb || !session) { pendingRemoveReadKeys.delete(key); return; }
-  const { error } = await sb.from('article_reads').delete().eq('user_id', session.user.id).eq('feed_id', a.feed_id).eq('guid', a.guid);
-  readStateVersion++;
-  pendingRemoveReadKeys.delete(key);
-  if (error) console.error('markUnread failed', error);
+  await saveReadChanges([a], false);
 }
 
 async function markAllRead() {
@@ -323,11 +328,55 @@ async function markAllRead() {
   saveCache();
   showToast('Marked all read');
   if (!sb || !session) { newlyRead.forEach(a => pendingAddReadKeys.delete(readKey(a))); return; }
-  const rows = newlyRead.map(a => ({ user_id: session.user.id, feed_id: a.feed_id, guid: a.guid, link: a.link }));
-  const { error } = await sb.from('article_reads').upsert(rows, { onConflict: 'user_id,feed_id,guid', ignoreDuplicates: true });
-  readStateVersion++;
-  newlyRead.forEach(a => pendingAddReadKeys.delete(readKey(a)));
-  if (error) console.error('markAllRead failed', error);
+  await saveReadChanges(newlyRead, true);
+}
+
+function saveReadChanges(changed, read) {
+  const userId = session.user.id;
+  const token = {};
+  changed.forEach(a => {
+    const key = readKey(a);
+    if (!readWriteTokens.has(key)) confirmedReadState.set(key, !read);
+    readWriteTokens.set(key, token);
+  });
+  // Preserve click order: an earlier slow mark-read cannot undo a later unread.
+  const saving = readWriteQueue.then(async () => {
+    if (session?.user.id !== userId) return;
+    let error;
+    try {
+      const result = read
+        ? await sb.from('article_reads').upsert(changed.map(a => ({
+          user_id: userId, feed_id: a.feed_id, guid: a.guid, link: a.link,
+        })), { onConflict: 'user_id,feed_id,guid', ignoreDuplicates: true })
+        : await sb.from('article_reads').delete().eq('user_id', userId)
+          .eq('feed_id', changed[0].feed_id).eq('guid', changed[0].guid);
+      error = result.error;
+    } catch (caught) { error = caught; }
+    if (session?.user.id !== userId) return;
+    readStateVersion++;
+    changed.forEach(a => {
+      const key = readKey(a);
+      if (!error) confirmedReadState.set(key, read);
+      if (readWriteTokens.get(key) !== token) return;
+      readWriteTokens.delete(key);
+      pendingAddReadKeys.delete(key);
+      pendingRemoveReadKeys.delete(key);
+      if (error) {
+        if (confirmedReadState.get(key)) readMarkers.add(key); else readMarkers.delete(key);
+      }
+      confirmedReadState.delete(key);
+    });
+    if (error) {
+      console.error('Read status save failed', error);
+      showToast('Could not save read status. Please try again.');
+    }
+    recomputeReadIds();
+    saveCache();
+    renderArticles();
+    renderFeedSidebar();
+  });
+  readWriteQueue = saving.catch(error => console.error('Read status save failed', error));
+  return saving;
 }
 
 function renderManageFeeds() {
@@ -616,9 +665,11 @@ async function refreshNow(opts) {
   if (btn) { btn.disabled = true; btn.setAttribute('aria-label', 'Refreshing'); btn.setAttribute('aria-busy', 'true'); }
 
   try {
-    const { error } = await sb.functions.invoke('fetch-feeds');
+    const { data, error } = await sb.functions.invoke('fetch-feeds');
     if (error) throw error;
-    if (!silent) showToast('Refreshed');
+    const failed = (data?.results || []).filter(result => !result.ok).length;
+    if (failed) showToast(`${failed} feed${failed === 1 ? '' : 's'} could not refresh. Try again later.`);
+    else if (!silent) showToast('Refreshed');
   } catch (e) {
     console.error('refreshNow failed', e);
     if (!silent) showToast('Refresh failed. Try again later.');
@@ -631,7 +682,9 @@ async function refreshNow(opts) {
 
 async function loadFeeds() {
   if (!sb || !session) return;
+  const userId = session.user.id;
   const { data, error } = await sb.from('feeds').select('*').order('position', { ascending: true });
+  if (session?.user.id !== userId) return;
   if (error) { console.error('loadFeeds failed', error); return; }
   feeds = data || [];
   // Feed list is authoritative: drop cached articles whose feed no longer
@@ -645,22 +698,32 @@ async function loadFeeds() {
 
 async function loadArticles() {
   if (!sb || !session) return;
+  const userId = session.user.id;
+  const version = ++articleLoadVersion;
   const { data, error } = await sb.from('articles')
     .select('id,feed_id,guid,link,title,summary,published_at')
     .order('published_at', { ascending: false })
     .order('id', { ascending: false })
     .range(0, ALL_ARTICLES_LIMIT - 1);
   if (error) { console.error('loadArticles failed', error); return; }
+  if (session?.user.id !== userId || version !== articleLoadVersion) return;
+  // Replace the refreshed window: purged rows must not live forever in cache.
+  articles = [];
+  feedArticlesOffset = {};
+  feedArticlesHasMore = {};
   mergeArticles(data || []);
   allArticlesOffset = (data || []).length;
   allArticlesHasMore = (data || []).length === ALL_ARTICLES_LIMIT;
   saveCache();
   renderFeedSidebar();
   renderArticles();
+  if (activeFilter !== 'all') await loadArticlesForFeed(activeFilter);
 }
 
 async function loadArticlesForFeed(feedId) {
   if (!sb || !session) return;
+  const userId = session.user.id;
+  const version = articleLoadVersion;
   const { data, error } = await sb.from('articles')
     .select('id,feed_id,guid,link,title,summary,published_at')
     .eq('feed_id', feedId)
@@ -668,6 +731,7 @@ async function loadArticlesForFeed(feedId) {
     .order('id', { ascending: false })
     .range(0, PER_FEED_ARTICLES_LIMIT - 1);
   if (error) { console.error('loadArticlesForFeed failed', error); return; }
+  if (session?.user.id !== userId || version !== articleLoadVersion) return;
   mergeArticles((data || []).map(a => ({ ...a, _loadedForFeed: true })));
   feedArticlesOffset[feedId] = (data || []).length;
   feedArticlesHasMore[feedId] = (data || []).length === PER_FEED_ARTICLES_LIMIT;
@@ -677,6 +741,8 @@ async function loadArticlesForFeed(feedId) {
 
 async function loadMoreArticles() {
   if (!sb || !session || loadingMoreArticles) return;
+  const userId = session.user.id;
+  const version = articleLoadVersion;
   loadingMoreArticles = true;
   renderArticles();
 
@@ -688,6 +754,7 @@ async function loadMoreArticles() {
         .order('id', { ascending: false })
         .range(allArticlesOffset, allArticlesOffset + LOAD_MORE_PAGE_SIZE - 1);
       if (error) { console.error('loadMoreArticles failed', error); showToast('Failed to load more'); return; }
+      if (session?.user.id !== userId || version !== articleLoadVersion) return;
       mergeArticles(data || []);
       allArticlesOffset += (data || []).length;
       allArticlesHasMore = (data || []).length === LOAD_MORE_PAGE_SIZE;
@@ -701,6 +768,7 @@ async function loadMoreArticles() {
         .order('id', { ascending: false })
         .range(offset, offset + LOAD_MORE_PAGE_SIZE - 1);
       if (error) { console.error('loadMoreArticles failed', error); showToast('Failed to load more'); return; }
+      if (session?.user.id !== userId || version !== articleLoadVersion) return;
       mergeArticles((data || []).map(a => ({ ...a, _loadedForFeed: true })));
       feedArticlesOffset[feedId] = offset + (data || []).length;
       feedArticlesHasMore[feedId] = (data || []).length === LOAD_MORE_PAGE_SIZE;
@@ -713,9 +781,12 @@ async function loadMoreArticles() {
 }
 
 function mergeArticles(rows) {
-  const byId = new Map(articles.map(a => [a.id, a]));
-  rows.forEach(r => byId.set(r.id, { ...byId.get(r.id), ...r }));
-  articles = [...byId.values()];
+  // Server row IDs change after cleanup; stable identity replaces the cached row.
+  for (const row of rows) {
+    articles = articles.filter(a => a.id !== row.id && !(a.feed_id === row.feed_id &&
+      (a.guid === row.guid || a.link === row.link)));
+    articles.push(row);
+  }
   recomputeReadIds();
 }
 
@@ -850,6 +921,17 @@ async function sendMagicLink() {
 async function doSignOut() {
   if (sb) await sb.auth.signOut();
   session = null;
+  resetAccountState();
+  saveCache();
+  updateAccountUI();
+  updateAuthModalState();
+  renderFeedSidebar();
+  renderArticles();
+  renderManageFeeds();
+  showToast('Signed out');
+}
+
+function resetAccountState() {
   feeds = [];
   articles = [];
   readMarkers = new Set();
@@ -858,17 +940,16 @@ async function doSignOut() {
   pendingRemoveReadKeys = new Set();
   readStateVersion++;
   readLoadVersion++;
+  articleLoadVersion++;
+  readWriteTokens.clear();
+  confirmedReadState.clear();
   allArticlesOffset = 0;
   allArticlesHasMore = true;
   feedArticlesOffset = {};
   feedArticlesHasMore = {};
-  saveCache();
-  updateAccountUI();
-  updateAuthModalState();
-  renderFeedSidebar();
-  renderArticles();
-  renderManageFeeds();
-  showToast('Signed out');
+  expandedArticleId = null;
+  activeFilter = 'all';
+  lastRefreshAt = 0;
 }
 
 async function initAuth() {
@@ -880,11 +961,17 @@ async function initAuth() {
   if (session) onSignedIn();
 
   sb.auth.onAuthStateChange((event, s2) => {
-    const wasSignedIn = isSignedIn();
+    const previousUserId = session?.user.id;
     session = s2;
+    if (previousUserId !== session?.user.id) {
+      resetAccountState();
+      renderFeedSidebar();
+      renderArticles();
+      renderManageFeeds();
+    }
     updateAccountUI();
     if (document.getElementById('auth-modal-backdrop').classList.contains('open')) updateAuthModalState();
-    if (session && !wasSignedIn) {
+    if (session && session.user.id !== previousUserId) {
       showToast('Signed in ✓');
       onSignedIn();
     }
@@ -892,6 +979,7 @@ async function initAuth() {
 }
 
 async function onSignedIn() {
+  loadCache();
   await loadFeeds();
   await loadArticles();
   await loadReads();
@@ -910,6 +998,13 @@ function escHtml(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 function escAttr(s) { return escHtml(s); }
+
+function safeArticleUrl(value) {
+  try {
+    const url = new URL(value);
+    return /^https?:$/.test(url.protocol) ? url.href : '#';
+  } catch { return '#'; }
+}
 
 function showToast(msg) {
   const t = document.getElementById('toast');

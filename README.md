@@ -39,6 +39,13 @@ For a fresh project, open **SQL Editor** in the Supabase dashboard, paste in
 [`supabase/schema.sql`](supabase/schema.sql), and run it once. It creates
 the tables, access rules, and daily cleanup jobs.
 
+This file includes the current read-history retention and access-control fixes.
+Fresh projects do not need to run the historical migrations afterward.
+For an existing database, use the incremental SQL files in
+[`supabase/migrations/`](supabase/migrations/) in filename order instead of
+rerunning the creation schema. Applying SQL changes updates the database;
+committing or pushing migration files to GitHub alone does not apply them.
+
 ### 3. Deploy the Edge Function
 
 Requires the [Supabase CLI](https://supabase.com/docs/guides/cli):
@@ -89,7 +96,9 @@ fetching (browsers block `fetch`/auth from `file://` origins).
   1,000-row response limit still sync completely. Failed loads preserve
   existing markers, and stale responses cannot overwrite newer local changes.
 - The browser caches loaded feeds, articles, and read status for offline
-  viewing. Saving changes across devices requires a Supabase connection.
+  viewing. Saving changes across devices requires a Supabase connection;
+  failed saves restore the last confirmed state and ask you to retry.
+  Refresh resets the loaded article window so deleted rows do not linger.
 
 ## Project structure
 
@@ -106,16 +115,23 @@ tests/read-state.test.cjs             Read-status sync regression tests
 
 ## Tests
 
-With Node.js 22 or newer, run from the project root:
+With Node.js 22.13 or newer, run from the project root:
 
 ```bash
-node --test tests/read-state.test.cjs
+node --test tests/read-state.test.cjs tests/fetch-feeds.test.cjs
 node --check app.js
 ```
 
 No dependency installation is needed. The tests use a mocked Supabase client
 to cover pagination, failed loads, refresh races, pending writes, and
 cross-device read/unread reconciliation.
+They also cover failed writes, cache failures, article reinsertion, source
+membership beyond storage caps, conditional fetches, and incomplete feeds.
+
+`tests/read-retention.sql` checks article cleanup/reinsertion, 90-day confirmed
+absence, returning entries, GUID/link matching, stale observations, failed and
+paused feeds, maintenance permissions, and feed deletion. Run it in SQL Editor on a provisioned database with an existing
+user; all test changes roll back.
 
 ## Storage design
 
@@ -139,9 +155,15 @@ small. Cleanup runs daily at 03:30 UTC through `pg_cron`:
 - **Separate read history**: `article_reads` is keyed by
   `(user_id, feed_id, guid)`, so deleting and reinserting an article does not
   delete its read marker. Markers are removed when their feed or user is
-  deleted, or when `read_at` is more than 30 days old
-  (`cleanup_old_read_markers()`). An article still served by its feed can
-  appear unread again after its marker expires.
+  deleted, or when you explicitly mark the article unread. Otherwise, markers
+  expire only after an article has been absent from successful source snapshots
+  for more than 90 days, confirmed by a snapshot within the past day. Entries
+  still in the source (including beyond the 200-article cap) stay protected.
+  Failed, paused, empty, and incompletely parsed feeds cannot establish new
+  absence; unchanged responses do not advance it. Existing markers start with
+  no assumed absence. Existing installations should run the SQL files in
+  `supabase/migrations/` in filename order, then deploy `fetch-feeds`.
+  The full schema is for fresh installations.
 - **Deduplication**: incoming articles are resolved by `(feed_id, link)` OR
   `(feed_id, guid)` first — repairing whichever field drifted on a match
   instead of inserting — then upserted on `(feed_id, guid)` for anything new,
@@ -149,8 +171,12 @@ small. Cleanup runs daily at 03:30 UTC through `pg_cron`:
   also let the fetcher migrate read status when a feed changes an article's
   GUID but keeps its link.
 - **Conditional fetching**: the Edge Function sends `If-None-Match` /
-  `If-Modified-Since` on every request and skips parsing entirely on a
-  `304 Not Modified` response, keeping fetch cost low as feed count grows.
+  `If-Modified-Since` between full snapshots and skips parsing on a
+  `304 Not Modified` response. The first refresh at least 24 hours after the
+  last full snapshot omits these headers to check source membership again.
 
-Storage usage depends on feed count, article volume, and read activity within
-these retention windows.
+Article storage is bounded by these caps and retention windows. Read history
+tracks current source entries and recently absent entries. Unverifiable or
+paused feeds retain history conservatively; this is not a hard database-size
+ceiling. Articles returning after their 90-day absence history has expired
+can appear unread again.
