@@ -11,12 +11,13 @@ function deferred() {
   return { promise, resolve };
 }
 
-function setup({ rows = [], cap = 1000, page, write } = {}) {
+function setup({ rows = [], cap = 1000, page, write, writeResult, cacheFails = false, articleRows = [] } = {}) {
   const requests = [];
+  const writes = [];
   const cache = new Map();
   const client = {
     from(table) {
-      assert.equal(table, 'article_reads');
+      assert.ok(['article_reads', 'articles'].includes(table));
       const request = { orders: [], filters: {} };
       const query = {
         select() { return this; },
@@ -24,11 +25,12 @@ function setup({ rows = [], cap = 1000, page, write } = {}) {
         order(column) { request.orders.push(column); return this; },
         range(start, end) {
           requests.push({ ...request, start, end });
+          if (table === 'articles') return Promise.resolve({ data: articleRows, error: null });
           return page ? page(start, end) : Promise.resolve({ data: rows.slice(start, Math.min(end + 1, start + cap)), error: null });
         },
-        upsert() { return write ? write.promise : Promise.resolve({ error: null }); },
-        delete() { return this; },
-        then(resolve, reject) { return (write ? write.promise : Promise.resolve({ error: null })).then(resolve, reject); },
+        upsert() { writes.push('upsert'); return write ? write.promise : Promise.resolve(writeResult || { error: null }); },
+        delete() { writes.push('delete'); return this; },
+        then(resolve, reject) { return (write ? write.promise : Promise.resolve(writeResult || { error: null })).then(resolve, reject); },
       };
       return query;
     },
@@ -36,7 +38,11 @@ function setup({ rows = [], cap = 1000, page, write } = {}) {
   const context = vm.createContext({
     window: { supabase: { createClient: () => client } },
     document: { addEventListener() {} },
-    localStorage: { setItem: (key, value) => cache.set(key, value) },
+    localStorage: {
+      setItem: (key, value) => { if (cacheFails) throw Error('QuotaExceeded'); cache.set(key, value); },
+      getItem: key => cache.get(key),
+    },
+    URL,
     console: { error() {} },
   });
   vm.runInContext(source.slice(0, source.lastIndexOf('\nloadCache();')), context);
@@ -46,7 +52,7 @@ function setup({ rows = [], cap = 1000, page, write } = {}) {
     renderArticles = renderFeedSidebar = showToast = () => {};
     articles = [{ id: 'article-1', feed_id: 'feed-1', guid: 'guid-1', link: 'https://example.com/1' }];
   `);
-  return { run, requests, cache };
+  return { run, requests, cache, writes };
 }
 
 test('loads all markers beyond the Supabase row limit before reconciling', async () => {
@@ -202,4 +208,72 @@ test('dropOrphanedArticles is a no-op when every cached article still has a feed
   assert.equal(run('articles.length'), 1);
   assert.equal(run("readMarkers.has('feed-1 g1')"), true);
   assert.equal(run('activeFilter'), 'feed-1');
+});
+
+for (const action of ['markRead', 'markAllRead', 'markUnread']) {
+  test(`failed ${action} restores state and reports the failure`, async () => {
+    const { run } = setup({ writeResult: { error: { message: 'offline' } } });
+    run("globalThis.toasts = []; showToast = message => toasts.push(message);");
+    if (action === 'markUnread') run("readMarkers.add('feed-1 guid-1'); recomputeReadIds();");
+    await run(`${action}('article-1')`);
+    assert.equal(run("readIds.has('article-1')"), action === 'markUnread');
+    assert.equal(run('pendingAddReadKeys.size + pendingRemoveReadKeys.size'), 0);
+    assert.match(run('toasts.at(-1)'), /Could not save/);
+  });
+}
+
+test('a full browser cache does not interrupt a read-status server save', async () => {
+  const { run } = setup({ cacheFails: true });
+  await run("markRead('article-1')");
+  assert.equal(run("readIds.has('article-1')"), true);
+  assert.equal(run('pendingAddReadKeys.size'), 0);
+});
+
+test('rapid read then unread saves in click order and keeps the final state', async () => {
+  const write = deferred();
+  const { run, writes } = setup({ write });
+  const first = run("markRead('article-1')");
+  const second = run("markUnread('article-1')");
+  await Promise.resolve();
+  assert.deepEqual(writes, ['upsert']);
+  write.resolve({ error: null });
+  await Promise.all([first, second]);
+  assert.deepEqual(writes, ['upsert', 'delete']);
+  assert.equal(run("readIds.has('article-1')"), false);
+  assert.equal(run('pendingAddReadKeys.size + pendingRemoveReadKeys.size'), 0);
+});
+
+test('two failed opposing writes restore the original confirmed state', async () => {
+  const { run } = setup({ writeResult: { error: { message: 'offline' } } });
+  const first = run("markRead('article-1')");
+  const second = run("markUnread('article-1')");
+  await Promise.all([first, second]);
+  assert.equal(run("readIds.has('article-1')"), false);
+});
+
+test('reinserted article replaces its obsolete cached row', () => {
+  const { run } = setup();
+  run("readMarkers.add('feed-1 guid-1'); mergeArticles([{ id: 'replacement', feed_id: 'feed-1', guid: 'guid-1', link: 'https://example.com/1' }]);");
+  assert.equal(run('articles.length'), 1);
+  assert.equal(run("readIds.has('replacement')"), true);
+});
+
+test('a successful article refresh removes purged cached articles', async () => {
+  const { run } = setup();
+  await run('loadArticles()');
+  assert.equal(run('articles.length'), 0);
+});
+
+test('article links allow only HTTP and HTTPS', () => {
+  const { run } = setup();
+  assert.equal(run("safeArticleUrl('javascript:alert(1)')"), '#');
+  assert.equal(run("safeArticleUrl('data:text/html,unsafe')"), '#');
+  assert.equal(run("safeArticleUrl('https://example.com/1')"), 'https://example.com/1');
+});
+
+test('cached account data is not loaded into another account', () => {
+  const { run } = setup();
+  run("readMarkers.add('feed-1 guid-1'); saveCache(); resetAccountState(); session = { user: { id: 'user-2' } }; loadCache();");
+  assert.equal(run('articles.length'), 0);
+  assert.equal(run('readMarkers.size'), 0);
 });

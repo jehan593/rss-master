@@ -77,16 +77,22 @@ interface FeedRow {
   last_modified: string | null;
   error_count: number;
   last_fetched_at: string | null;
+  presence_checked_at: string | null;
 }
 
 async function fetchOneFeed(feed: FeedRow) {
+  const checkedAt = new Date().toISOString();
   const headers: Record<string, string> = { 'User-Agent': 'rss-master/1.0 (+feed reader)' };
-  if (feed.etag) headers['If-None-Match'] = feed.etag;
-  if (feed.last_modified) headers['If-Modified-Since'] = feed.last_modified;
+  // Obtain a complete snapshot at least daily, even for quiet feeds. A 304
+  // provides no identities and must never establish absence for new markers.
+  const needsSnapshot = !feed.presence_checked_at ||
+    Date.now() - Date.parse(feed.presence_checked_at) >= 24 * 60 * 60 * 1000;
+  if (!needsSnapshot && feed.etag) headers['If-None-Match'] = feed.etag;
+  if (!needsSnapshot && feed.last_modified) headers['If-Modified-Since'] = feed.last_modified;
 
   let res: Response;
   try {
-    res = await fetch(feed.url, { headers, redirect: 'follow' });
+    res = await fetch(feed.url, { headers, redirect: 'follow', signal: AbortSignal.timeout(15000) });
   } catch (err) {
     await admin.from('feeds').update({
       error_count: feed.error_count + 1,
@@ -129,9 +135,8 @@ async function fetchOneFeed(feed: FeedRow) {
   }
 
   const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
-  const rows = entries
+  const allRows = entries
     .filter((e: any) => e && (e.link || e.id))
-    .slice(0, MAX_ARTICLES_PER_FEED) // never process more than the cap in one pass
     .map((e: any) => {
       const link = String(e.link || e.id);
       const rawId = e.id != null ? String(e.id) : '';
@@ -149,6 +154,7 @@ async function fetchOneFeed(feed: FeedRow) {
         published_at: publishedAt,
       };
     });
+  const rows = allRows.slice(0, MAX_ARTICLES_PER_FEED);
 
   if (rows.length) {
     // Some feeds emit the same link twice in one poll (e.g. cross-posted
@@ -203,40 +209,25 @@ async function fetchOneFeed(feed: FeedRow) {
       }
     }
     for (const { id, ...patch } of fixups) {
-      await admin.from('articles').update(patch).eq('id', id);
-    }
-
-    // Read markers are keyed on (feed_id, guid), and guid can legitimately
-    // drift: a feed changes its <guid> scheme, or our link-derived fallback
-    // guid moves when the feed rewrites its links. The fixups above keep the
-    // stored article row aligned, but any reader already marked read stays
-    // keyed under the OLD guid — which orphans the marker, so the article
-    // reverts to unread everywhere (and reads as "not read" on fresh devices
-    // even though one device still shows it read from cache). The link is the
-    // one part of the identity that usually survives this churn, so migrate
-    // any markers parked on this feed+link to the current guid. Skip entirely
-    // when nothing was inserted or had its guid changed — that's the common
-    // unchanged poll, and it would otherwise be ~200 no-op UPDATEs per feed.
-    const guidChanged = fixups.some(f => f.guid);
-    if (guidChanged || toInsert.length) {
-      for (const r of dedupedRows) {
-        const { error: migrateErr } = await admin.from('article_reads')
-          .update({ guid: r.guid })
-          .eq('feed_id', feed.id)
-          .eq('link', r.link)
-          .neq('guid', r.guid);
-        // A (user_id, feed_id, guid) PK conflict can only happen if this user
-        // also has a leftover marker under the target guid from a different
-        // (purged) article that once used that guid — vanishingly rare, so
-        // leave both rows alone rather than spreading — or losing — state.
-        if (migrateErr && migrateErr.code !== '23505') {
-          console.log(`read-marker guid migration skipped for ${feed.id}/${r.guid}: ${migrateErr.message}`);
-        }
-      }
+      const { error } = await admin.from('articles').update(patch).eq('id', id);
+      if (error) return { feedId: feed.id, ok: false, reason: `identity update error: ${error.message}` };
     }
   }
 
-  await admin.from('feeds').update({
+  // Use ALL source entries, including those beyond the article storage cap.
+  // Fail closed for empty or incomplete parses; these cannot prove absence.
+  if (allRows.length && allRows.length === entries.length) {
+    const { error: presenceError } = await admin.rpc('record_feed_presence', {
+      target_feed: feed.id,
+      identities: allRows.map(({ guid, link }) => ({ guid, link })),
+      checked_at: checkedAt,
+    });
+    if (presenceError) {
+      return { feedId: feed.id, ok: false, reason: `presence error: ${presenceError.message}` };
+    }
+  }
+
+  const { error: feedUpdateError } = await admin.from('feeds').update({
     title: parsed.title ? String(parsed.title).slice(0, 200) : undefined,
     site_url: parsed.link ? String(parsed.link).slice(0, 500) : undefined,
     etag: res.headers.get('etag'),
@@ -244,6 +235,8 @@ async function fetchOneFeed(feed: FeedRow) {
     error_count: 0,
     last_fetched_at: new Date().toISOString(),
   }).eq('id', feed.id);
+
+  if (feedUpdateError) return { feedId: feed.id, ok: false, reason: `feed update error: ${feedUpdateError.message}` };
 
   return { feedId: feed.id, ok: true, inserted: rows.length };
 }
@@ -343,7 +336,7 @@ Deno.serve(async (req) => {
     return await discoverFeed(discoverUrl);
   }
 
-  let feedsQuery = admin.from('feeds').select('id,url,etag,last_modified,error_count,last_fetched_at').eq('active', true);
+  let feedsQuery = admin.from('feeds').select('id,url,etag,last_modified,error_count,last_fetched_at,presence_checked_at').eq('active', true);
 
   // Service-role calls (cron) refresh everyone; a signed-in user's own JWT
   // scopes the refresh to just their feeds so "Refresh now" stays cheap.
