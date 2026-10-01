@@ -94,7 +94,7 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .feed-sidebar-search { width: 100%; padding: 10px 44px 10px 36px; border: 1px solid var(--border); background: transparent; color: var(--text); }
 .search-clear { position: absolute; right: 2px; top: 2px; }
 .search-clear[hidden] { display: none; }
-#feed-sidebar-list { max-height: min(360px, 50vh); overflow-y: auto; }
+#feed-sidebar-list { max-height: min(360px, 50vh); overflow-y: auto; overscroll-behavior-y: contain; }
 .feed-sidebar-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px; margin-bottom: 4px; border: 0; background: transparent; color: var(--text2); text-align: left; }
 .feed-sidebar-item:hover, .feed-sidebar-item:focus-visible { background: var(--bg3); }
 .feed-sidebar-item.active { background: var(--bg3); }

@@ -160,9 +160,8 @@ function clearFeedSearch() {
 function openFeedSidebar() {
   document.getElementById('feed-sidebar-backdrop').classList.add('open');
   document.getElementById('feed-switcher-btn').setAttribute('aria-expanded', 'true');
-  document.querySelector('.feed-sidebar-popup').focus();
-  // Keep the anchored popup from scrolling over the header.
-  document.body.style.overflow = 'hidden';
+  // Preserve the sticky toolbar's scroll container and the current reading position.
+  document.querySelector('.feed-sidebar-popup').focus({ preventScroll: true });
 }
 
 function closeFeedSidebar() {
@@ -170,8 +169,7 @@ function closeFeedSidebar() {
   if (!backdrop.classList.contains('open')) return;
   backdrop.classList.remove('open');
   document.getElementById('feed-switcher-btn').setAttribute('aria-expanded', 'false');
-  document.getElementById('feed-switcher-btn').focus();
-  document.body.style.overflow = '';
+  document.getElementById('feed-switcher-btn').focus({ preventScroll: true });
 }
 
 function setFilter(filter) {
