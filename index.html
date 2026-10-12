@@ -7,7 +7,7 @@
 <title>rss-master</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
 <meta name="theme-color" content="#2e3440">
-<link rel="stylesheet" href="style.css?v=20261012d">
+<link rel="stylesheet" href="style.css?v=20261012e">
 </head>
 <body>
 
@@ -39,7 +39,7 @@
     <div class="sidebar-heading"><strong>Library</strong><div>
       <button class="btn icon-btn" onclick="showFeedForm()" title="Add feed" aria-label="Add feed">＋</button>
       <button class="btn icon-btn" onclick="editLibraryItem('folder')" title="Create folder" aria-label="Create folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5h6l2 2h10v12H3zM12 10v6M9 13h6"/></svg></button>
-      <button class="btn icon-btn mobile-sidebar-close" onclick="closeFeedSidebar()" aria-label="Close sidebar">×</button>
+      <button class="btn icon-btn mobile-sidebar-close" id="sidebar-close-btn" onclick="closeFeedSidebar()" aria-label="Close sidebar">×</button>
     </div></div>
     <div class="feed-search-wrap"><input class="feed-sidebar-search" id="library-search" placeholder="Search library…" aria-label="Search feeds and folders" oninput="renderFeedSidebar()"></div>
     <div id="library-tree"></div>
@@ -49,7 +49,7 @@
   <div class="section active" id="section-articles">
     <div class="articles-header">
       <div class="feed-switcher-bar">
-        <button class="btn feed-switcher-btn" id="feed-switcher-btn" aria-expanded="false" aria-controls="navigation-sidebar" onclick="openFeedSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span id="current-feed-label">All feeds</span></button>
+        <h2 class="current-feed-title" id="current-feed-label" tabindex="-1">All feeds</h2>
       </div>
 
       <div class="articles-toolbar">
@@ -172,7 +172,7 @@
   </form>
 </div>
 
-<script src="library.js?v=20261012d"></script>
-<script src="app.js?v=20261012d"></script>
+<script src="library.js?v=20261012e"></script>
+<script src="app.js?v=20261012e"></script>
 </body>
 </html>

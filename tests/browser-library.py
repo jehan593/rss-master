@@ -34,8 +34,14 @@ try:
             page.evaluate(fixture)
             if mobile:
                 assert not page.locator('#navigation-sidebar').is_visible()
-                page.locator('#feed-switcher-btn').click()
+                page.locator('#mobile-library-btn').click()
             assert page.locator('#navigation-sidebar').is_visible()
+            assert page.locator('#current-feed-label').evaluate('el=>el.tagName') == 'H2'
+            assert page.locator('#feed-switcher-btn').count() == 0
+            assert page.locator('#library-tree .feed-color-dot').count() == 0
+            if mobile:
+                assert page.evaluate('document.activeElement.id') == 'sidebar-close-btn'
+                assert not page.locator('#library-search').evaluate('el=>el===document.activeElement')
             assert float(page.locator('#navigation-sidebar').evaluate("el=>getComputedStyle(el).fontSize.replace('px','')")) == 11
             if not mobile:
                 assert page.locator('#navigation-sidebar').bounding_box()['width'] >= 300
@@ -53,7 +59,7 @@ try:
             assert page.locator('#articles-list').inner_text().find('Nested article') >= 0
             if mobile:
                 assert not page.locator('#navigation-sidebar').is_visible()
-                page.locator('#feed-switcher-btn').click()
+                page.locator('#mobile-library-btn').click()
             row=page.locator('[data-id="feed-a"]')
             if mobile:
                 row.locator('.library-more').click()
@@ -69,7 +75,7 @@ try:
             assert page.evaluate('window.__rpc[0].args.destination') == 'folder-b'
             assert page.evaluate('window.__rpc[0].args.new_name') == 'Updated feed'
             if mobile:
-                page.locator('#feed-switcher-btn').click()
+                page.locator('#mobile-library-btn').click()
             page.locator('[data-id="folder-a"] .library-more').click()
             page.get_by_role('menuitem', name='Rename', exact=True).click()
             assert not page.locator('#library-parent').is_visible()
@@ -77,7 +83,7 @@ try:
             assert page.locator('#library-parent option[value="folder-b"]').count() == 0
             page.keyboard.press('Escape')
             if mobile:
-                page.locator('#feed-switcher-btn').click()
+                page.locator('#mobile-library-btn').click()
                 source = page.locator('[data-id="feed-b"] .library-drag-handle').bounding_box()
                 target = page.locator('[data-id="folder-b"]').bounding_box()
                 cdp = context.new_cdp_session(page)
