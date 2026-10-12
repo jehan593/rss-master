@@ -7,7 +7,7 @@ begin
   select id into owner_id from auth.users limit 1;
   if owner_id is null then raise exception 'A test account is required'; end if;
   perform set_config('request.jwt.claim.sub', owner_id::text, true);
-  perform public.save_library_item('folder',null,null,null,'Sidebar test root',null);
+  perform public.save_library_item('folder',null,null,null,'Sidebar test root','');
   select id into root_id from public.folders where user_id=owner_id and name='Sidebar test root';
   perform public.save_library_item('folder',null,root_id,null,'Sidebar test child',null);
   select id into child_id from public.folders where user_id=owner_id and name='Sidebar test child';

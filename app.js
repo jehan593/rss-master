@@ -330,113 +330,6 @@ function saveReadChanges(changed, read) {
   return saving;
 }
 
-function renderManageFeeds() {
-  const list = document.getElementById('manage-feeds-list');
-  if (!session) {
-    list.innerHTML = `<div class="empty-state"><p>Sign in to manage feeds</p></div>`;
-    return;
-  }
-  if (!feeds.length) {
-    list.innerHTML = `<div class="empty-state"><p>No feeds yet</p><small>Add a feed or website URL above.</small></div>`;
-    return;
-  }
-
-  const sorted = [...feeds].sort((a, b) => a.position - b.position);
-
-  list.innerHTML = sorted.map((f, i) => {
-    const hasError = f.error_count > 0;
-    let statusText = f.last_fetched_at ? 'Last checked ' + timeAgo(f.last_fetched_at) : 'Not checked yet';
-    if (!f.active) statusText = 'Paused after repeated errors';
-    else if (hasError) statusText += ` · ${f.error_count} failed attempt${f.error_count === 1 ? '' : 's'}`;
-
-    const nameHtml = renamingFeedId === f.id
-      ? `<div class="rename-row">
-          <input type="text" id="rename-input" aria-label="Feed name" value="${escAttr(feedTitle(f.id))}"
-            onkeydown="if(event.key==='Enter')saveRenameFeed('${f.id}'); if(event.key==='Escape')cancelRenameFeed();">
-          <button class="btn btn-sm btn-accent" onclick="saveRenameFeed('${f.id}')">Save</button>
-          <button class="btn btn-sm btn-ghost" onclick="cancelRenameFeed()">Cancel</button>
-        </div>`
-      : `<div class="name">${escHtml(feedTitle(f.id))}</div>`;
-
-    return `
-      <div class="manage-feed-item">
-        <div class="manage-feed-reorder">
-          <button ${i === 0 ? 'disabled' : ''} onclick="moveFeed('${f.id}', -1)" aria-label="Move up">▲</button>
-          <button ${i === sorted.length - 1 ? 'disabled' : ''} onclick="moveFeed('${f.id}', 1)" aria-label="Move down">▼</button>
-        </div>
-        <span class="feed-color-dot" style="background:${feedColor(f.id)}" aria-hidden="true"></span>
-        <div class="manage-feed-info">
-          ${nameHtml}
-          <div class="url">${escHtml(f.url)}</div>
-          <div class="status ${!f.active || hasError ? 'error-text' : ''}">${escHtml(statusText)}</div>
-        </div>
-        <div class="manage-feed-actions">
-          <button class="btn btn-sm" onclick="startRenameFeed('${f.id}')">Rename</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteFeed('${f.id}')">Remove</button>
-        </div>
-      </div>`;
-  }).join('');
-
-  if (renamingFeedId) {
-    const input = document.getElementById('rename-input');
-    if (input) { input.focus(); input.select(); }
-  }
-}
-
-let renamingFeedId = null;
-
-function startRenameFeed(feedId) {
-  renamingFeedId = feedId;
-  renderManageFeeds();
-}
-
-function cancelRenameFeed() {
-  renamingFeedId = null;
-  renderManageFeeds();
-}
-
-async function saveRenameFeed(feedId) {
-  const input = document.getElementById('rename-input');
-  const value = input ? input.value.trim() : '';
-  const feed = feeds.find(f => f.id === feedId);
-  if (!feed) { renamingFeedId = null; return; }
-
-  // Empty input clears the override, reverting to the feed's own title.
-  const displayName = value || null;
-  const { error } = await sb.from('feeds').update({ display_name: displayName }).eq('id', feedId);
-  if (error) { showToast('Failed to rename feed'); return; }
-
-  feed.display_name = displayName;
-  renamingFeedId = null;
-  saveCache();
-  renderManageFeeds();
-  renderFeedSidebar();
-  renderArticles();
-}
-
-async function moveFeed(feedId, direction) {
-  if (!sb || !session) return;
-  const sorted = [...feeds].sort((a, b) => a.position - b.position);
-  const idx = sorted.findIndex(f => f.id === feedId);
-  const swapIdx = idx + direction;
-  if (idx === -1 || swapIdx < 0 || swapIdx >= sorted.length) return;
-
-  const a = sorted[idx], b = sorted[swapIdx];
-  const [posA, posB] = [a.position, b.position];
-
-  const [{ error: e1 }, { error: e2 }] = await Promise.all([
-    sb.from('feeds').update({ position: posB }).eq('id', a.id),
-    sb.from('feeds').update({ position: posA }).eq('id', b.id),
-  ]);
-  if (e1 || e2) { showToast('Failed to reorder'); return; }
-
-  a.position = posB;
-  b.position = posA;
-  saveCache();
-  renderManageFeeds();
-  renderFeedSidebar();
-}
-
 function xmlEsc(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
@@ -491,8 +384,7 @@ async function importOpml(event) {
   if (added.length) {
     feeds.push(...added);
     saveCache();
-    renderManageFeeds();
-    renderFeedSidebar();
+      renderFeedSidebar();
     refreshNow({ silent: true });
   }
   const skipped = rows.length - added.length;
@@ -529,7 +421,7 @@ async function addFeed() {
 
 async function insertFeed(feedUrl) {
   const { data, error } = await sb.from('feeds')
-    .insert({ url: feedUrl, user_id: session.user.id, folder_id: activeFilter.startsWith('folder:') ? activeFilter.slice(7) : null })
+    .insert({ url: feedUrl, user_id: session.user.id, folder_id: addFeedFolder })
     .select()
     .single();
 
@@ -540,8 +432,8 @@ async function insertFeed(feedUrl) {
 
   feeds.push(data);
   document.getElementById('new-feed-url').value = '';
+  closeModal('add-feed-modal-backdrop');
   saveCache();
-  renderManageFeeds();
   renderFeedSidebar();
   showToast('Feed added — fetching articles…');
   refreshNow({ silent: true });
@@ -593,7 +485,6 @@ async function doDeleteFeed() {
   delete feedArticlesHasMore[id];
   if (activeFilter === id) activeFilter = 'all';
   saveCache();
-  renderManageFeeds();
   renderFeedSidebar();
   renderArticles();
   closeConfirmModal();
@@ -648,7 +539,6 @@ async function loadFeeds() {
   dropOrphanedArticles();
   saveCache();
   renderFeedSidebar();
-  renderManageFeeds();
 }
 
 async function loadArticles() {
@@ -884,7 +774,6 @@ async function doSignOut() {
   updateAuthModalState();
   renderFeedSidebar();
   renderArticles();
-  renderManageFeeds();
   showToast('Signed out');
 }
 
@@ -925,8 +814,7 @@ async function initAuth() {
       resetAccountState();
       renderFeedSidebar();
       renderArticles();
-      renderManageFeeds();
-    }
+        }
     updateAccountUI();
     if (document.getElementById('auth-modal-backdrop').classList.contains('open')) updateAuthModalState();
     if (session && session.user.id !== previousUserId) {
@@ -942,7 +830,6 @@ async function onSignedIn() {
   await loadArticles();
   await loadReads();
   renderArticles();
-  renderManageFeeds();
   renderFeedSidebar();
   refreshNow({ silent: true });
 }
@@ -997,7 +884,7 @@ function closeModal(id) {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeModal('library-modal-backdrop'); closeLibraryMenu(); closeConfirmModal(); closeFeedPicker(); closeAuthModal(); closeFeedSidebar(); }
+  if (e.key === 'Escape') { closeModal('add-feed-modal-backdrop'); closeModal('library-modal-backdrop'); closeLibraryMenu(); closeConfirmModal(); closeFeedPicker(); closeAuthModal(); closeFeedSidebar(); }
   if (e.key !== 'Tab') return;
   const popup = document.querySelector('.open > [role="dialog"]') || (document.body.classList.contains('sidebar-open') && window.matchMedia('(max-width: 800px)').matches ? document.getElementById('navigation-sidebar') : null);
   if (!popup) return;
@@ -1016,7 +903,6 @@ document.addEventListener('keydown', e => {
 loadCache();
 renderFeedSidebar();
 renderArticles();
-renderManageFeeds();
 initAuth();
 
 // Keep the article controls directly below the header at any screen/font size.

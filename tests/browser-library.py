@@ -12,7 +12,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 mock = '''window.__rpc=[]; window.__feeds=[]; window.__folders=[];
 window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange:()=>{}},
 from:(table)=>{const q={select:()=>q,eq:()=>q,order:()=>q,range:()=>q,then:(resolve)=>Promise.resolve({data:table==='feeds'?window.__feeds:table==='folders'?window.__folders:[],error:null}).then(resolve)};return q;},
-rpc:async(name,args)=>{window.__rpc.push({name,args}); return {error:null};}})};'''
+rpc:async(name,args)=>{if(args.item_kind==='folder' && args.new_url!==null) return {error:{message:'Enter an HTTP(S) feed URL'}};window.__rpc.push({name,args}); return {error:null};}})};'''
 try:
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.environ.get('RSS_TEST_BROWSER'))
@@ -50,15 +50,17 @@ try:
             page.get_by_role('menuitem', name='Rename / edit link').click()
             assert page.locator('#library-url').input_value() == 'https://example.com/rss'
             page.locator('#library-name').fill('Updated feed')
-            page.locator('#library-parent').select_option('')
+            assert not page.locator('#library-parent').is_visible()
+            assert page.locator('#library-before').count() == 0
             page.locator('#library-save').click()
             page.wait_for_function('window.__rpc.length === 1')
-            assert page.evaluate('window.__rpc[0].args.destination') is None
+            assert page.evaluate('window.__rpc[0].args.destination') == 'folder-b'
             assert page.evaluate('window.__rpc[0].args.new_name') == 'Updated feed'
             if mobile:
                 page.locator('#feed-switcher-btn').click()
             page.locator('[data-id="folder-a"] .library-more').click()
             page.get_by_role('menuitem', name='Rename', exact=True).click()
+            assert not page.locator('#library-parent').is_visible()
             assert page.locator('#library-parent option[value="folder-a"]').count() == 0
             assert page.locator('#library-parent option[value="folder-b"]').count() == 0
             page.keyboard.press('Escape')
@@ -82,6 +84,37 @@ try:
                 page.locator('[data-id="feed-b"]').drag_to(page.locator('[data-id="folder-b"]'))
                 page.wait_for_function('window.__rpc.length === 2')
                 assert page.evaluate('window.__rpc[1].args.destination') == 'folder-b'
+            page.locator('#navigation-sidebar').get_by_role('button', name='Create folder', exact=True).click()
+            assert not page.locator('#library-url').is_visible()
+            assert page.locator('#library-before').count() == 0
+            page.locator('#library-name').fill('New folder')
+            page.locator('#library-save').click()
+            page.wait_for_function('window.__rpc.length === 3')
+            assert page.evaluate('window.__rpc[2].args.new_url') is None
+            assert page.locator('#library-modal-backdrop').is_hidden()
+            if mobile:
+                page.locator('#mobile-library-btn').click()
+            page.locator('[data-id="feed-a"] .library-more').click()
+            page.get_by_role('menuitem', name='Move to folder…', exact=True).click()
+            assert not page.locator('#library-name').is_visible()
+            assert not page.locator('#library-url').is_visible()
+            page.locator('#library-parent').select_option('')
+            page.locator('#library-save').click()
+            page.wait_for_function('window.__rpc.length === 4')
+            assert page.evaluate('window.__rpc[3].args.destination') is None
+            assert page.evaluate('window.__rpc[3].args.new_url') is None
+            if mobile:
+                page.locator('#mobile-library-btn').click()
+            page.locator('#navigation-sidebar').get_by_role('button', name='Add feed', exact=True).click()
+            assert page.locator('#add-feed-modal-backdrop').is_visible()
+            assert page.locator('#section-feeds').count() == 0
+            assert page.locator('#new-feed-folder').is_visible()
+            page.keyboard.press('Escape')
+            if mobile:
+                page.locator('#mobile-library-btn').click()
+            page.locator('#navigation-sidebar').get_by_role('button', name='Settings').click()
+            assert page.locator('#section-settings').get_by_role('button', name='Import OPML').is_visible()
+            assert page.locator('#navigation-sidebar').get_by_role('button', name='Import / export').count() == 0
             assert not errors, errors
             print(f'PASS library UI at {width}px (mobile={mobile})')
             context.close()

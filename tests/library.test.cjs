@@ -23,3 +23,22 @@ test('feeds and folders share sibling ordering', () => {
   assert.equal(run("libraryChildren('a').map(i=>i.id).join(',')"), 'b,one');
   assert.equal(run("folderPath('c')"), 'A / B / C');
 });
+
+test('dropping on folder edges reorders; dropping in its center moves inside', () => {
+  const run = setup();
+  run("libraryDrag = {kind:'feed',id:'root'}; let target = {dataset:{kind:'folder',id:'a'},getBoundingClientRect:()=>({top:100,height:44})};");
+  assert.equal(run('libraryDropDestination(target, 103).before'), 'a');
+  assert.equal(run('libraryDropDestination(target, 103).parent'), null);
+  assert.equal(run('libraryDropDestination(target, 122).parent'), 'a');
+  assert.equal(run('libraryDropDestination(target, 141).style'), 'drop-after');
+  assert.equal(run('libraryDropDestination(target, 141).parent'), null);
+  assert.equal(run('libraryDropDestination({dataset:{root:true}}, 0).parent'), null);
+});
+
+test('folder writes never send a feed URL', async () => {
+  const run = setup();
+  run("let sent; let sb={rpc:async(name,args)=>{sent=args;return {error:null}}}; let loadFeeds=async()=>{};let saveCache=()=>{};renderLibrary=()=>{};let renderArticles=()=>{};");
+  await run("writeLibraryMove('folder',null,null,null,'New folder','')");
+  assert.equal(run('sent.new_url'), null);
+  assert.equal(run('sent.new_name'), 'New folder');
+});

@@ -1,6 +1,7 @@
 let libraryEditing = null;
 let libraryBusy = false;
 let libraryDrag = null;
+let addFeedFolder = null;
 const collapsedFolders = new Set();
 
 function libraryDescendants(id) {
@@ -23,12 +24,16 @@ function libraryChildren(parent) {
 }
 function showLibrarySection(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.toggle('active', s.id === 'section-' + name));
-  if (name === 'feeds') renderManageFeeds();
   closeFeedSidebar();
 }
-function showFeedForm() {
-  showLibrarySection('feeds');
-  document.getElementById('new-feed-url').focus();
+function showFeedForm(parent) {
+  if (!session) { openAuthModal(); return; }
+  addFeedFolder = parent === undefined ? (activeFilter.startsWith('folder:') ? activeFilter.slice(7) : feeds.find(f => f.id === activeFilter)?.folder_id || null) : parent;
+  const select = document.getElementById('new-feed-folder');
+  select.innerHTML = '<option value="">No folder</option>' + folders.map(f => `<option value="${f.id}">${escHtml(folderPath(f.id))}</option>`).join('');
+  select.value = addFeedFolder || '';
+  document.getElementById('new-feed-url').value = '';
+  openModal('add-feed-modal-backdrop');
 }
 async function loadFolders() {
   const userId = session?.user.id;
@@ -54,11 +59,11 @@ function renderLibrary() {
     const unread = count(folder ? libraryFeedIds(item.id) : [item.id]);
     return `<div class="library-row ${activeFilter === filter ? 'active' : ''}" data-kind="${item.kind}" data-id="${item.id}" draggable="true" style="--depth:${depth}">
       ${folder ? `<button class="folder-toggle" aria-label="${collapsedFolders.has(item.id) ? 'Expand' : 'Collapse'} ${escAttr(title)}" aria-expanded="${!collapsedFolders.has(item.id)}" onclick="collapsedFolders.has('${item.id}')?collapsedFolders.delete('${item.id}'):collapsedFolders.add('${item.id}');renderLibrary()">${collapsedFolders.has(item.id) ? '▸' : '▾'}</button>` : '<span class="feed-color-dot" style="background:' + feedColor(item.id) + '"></span>'}
-      <button class="library-select" onclick="setFilter('${filter}')"><span class="fs-name">${folder ? '▱ ' : ''}${escHtml(title)}</span><span class="fs-count">${unread || ''}</span></button>
+      <button class="library-select" aria-pressed="${activeFilter === filter}" onclick="setFilter('${filter}')"><span class="library-item-icon" aria-hidden="true">${libraryIcon(folder ? 'folder' : 'feed')}</span><span class="fs-name">${escHtml(title)}</span><span class="fs-count">${unread || ''}</span></button>
       <button class="library-drag-handle" aria-label="Drag ${escAttr(title)}" title="Drag to move">⠿</button><button class="library-more" aria-label="Options for ${escAttr(title)}" onclick="openLibraryMenu(event,'${item.kind}','${item.id}')">⋮</button></div>` +
       (folder && (!collapsedFolders.has(item.id) || query) ? branch(item.id, depth + 1) : '');
   }).join('');
-  tree.innerHTML = `<button class="feed-sidebar-item ${activeFilter === 'all' ? 'active' : ''}" onclick="setFilter('all')">All feeds <span class="fs-count">${count(null)}</span></button><div class="library-root-drop" data-root="true">Library · drop here to move out of a folder</div>` + branch(null) + (!feeds.length && !folders.length ? '<p class="library-hint">Add a feed or create a folder above.</p>' : '');
+  tree.innerHTML = `<button class="feed-sidebar-item ${activeFilter === 'all' ? 'active' : ''}" aria-pressed="${activeFilter === 'all'}" onclick="setFilter('all')">All feeds <span class="fs-count">${count(null)}</span></button><div class="library-root-drop" data-root="true">Feeds <span class="root-drop-hint">Move here for no folder</span></div>` + branch(null) + (!feeds.length && !folders.length ? '<p class="library-hint">Add a feed or create a folder above.</p>' : '');
   tree.querySelectorAll('.library-row').forEach(row => {
     row.oncontextmenu = e => openLibraryMenu(e, row.dataset.kind, row.dataset.id);
     row.ondragstart = e => { libraryDrag = { kind: row.dataset.kind, id: row.dataset.id }; e.dataTransfer.setData('text/plain', row.dataset.id); e.dataTransfer.effectAllowed = 'move'; };
@@ -71,8 +76,7 @@ function renderLibrary() {
     };
     handle.onpointermove = e => {
       if (!handle.hasPointerCapture(e.pointerId)) return;
-      document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
-      document.elementFromPoint(e.clientX, e.clientY)?.closest('.library-row, .library-root-drop')?.classList.add('drop-target');
+      highlightLibraryDrop(document.elementFromPoint(e.clientX, e.clientY)?.closest('.library-row, .library-root-drop'), e.clientY);
       const bounds = tree.getBoundingClientRect();
       if (e.clientY < bounds.top + 40) tree.scrollTop -= 18;
       if (e.clientY > bounds.bottom - 40) tree.scrollTop += 18;
@@ -84,36 +88,42 @@ function renderLibrary() {
       if (target) { const drop = new Event('drop', { bubbles: true, cancelable: true }); Object.defineProperty(drop, 'clientY', { value: e.clientY }); target.dispatchEvent(drop); }
       libraryDrag = null;
     };
-    handle.onpointercancel = () => { libraryDrag = null; row.classList.remove('dragging'); document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target')); };
+    handle.onpointercancel = () => { libraryDrag = null; row.classList.remove('dragging'); clearLibraryDrop(); };
   });
+}
+function libraryIcon(kind) {
+  const path = kind === 'folder' ? '<path d="M3 7V5h6l2 2h10v12H3z"/>' : '<circle cx="5" cy="19" r="1"/><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/>';
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
 }
 function closeLibraryMenu() { document.getElementById('library-menu').hidden = true; }
 function openLibraryMenu(event, kind, id) {
   event.preventDefault(); event.stopPropagation();
   const menu = document.getElementById('library-menu');
-  menu.innerHTML = `<button role="menuitem" onclick="editLibraryItem('${kind}','${id}')">${kind === 'feed' ? 'Rename / edit link' : 'Rename'}</button><button role="menuitem" onclick="editLibraryItem('${kind}','${id}')">Move…</button><button role="menuitem" onclick="removeLibraryItem('${kind}','${id}')">Delete</button>`;
+  menu.innerHTML = (kind === 'folder' ? `<button role="menuitem" onclick="closeLibraryMenu();showFeedForm('${id}')">Add feed here</button><button role="menuitem" onclick="editLibraryItem('folder',null,'edit','${id}')">New subfolder</button>` : '') + `<button role="menuitem" onclick="editLibraryItem('${kind}','${id}')">${kind === 'feed' ? 'Rename / edit link' : 'Rename'}</button><button role="menuitem" onclick="editLibraryItem('${kind}','${id}','move')">Move to folder…</button><button role="menuitem" onclick="removeLibraryItem('${kind}','${id}')">Delete</button>`;
   menu.hidden = false;
   const rect = event.currentTarget.getBoundingClientRect();
   menu.style.left = Math.max(8, Math.min(event.clientX || rect.left, window.innerWidth - 240)) + 'px';
   menu.style.top = Math.max(8, Math.min(event.clientY || rect.bottom, window.innerHeight - menu.offsetHeight - 8)) + 'px';
   menu.querySelector('button').focus();
 }
-function editLibraryItem(kind, id = null) {
+function editLibraryItem(kind, id = null, mode = 'edit', parentId) {
   closeLibraryMenu();
   if (!session) { openAuthModal(); return; }
   const item = (kind === 'folder' ? folders : feeds).find(f => f.id === id);
-  libraryEditing = { kind, id };
-  document.getElementById('library-modal-title').textContent = id ? 'Edit ' + kind : 'Create folder';
+  libraryEditing = { kind, id, mode };
+  document.getElementById('library-modal-title').textContent = mode === 'move' ? 'Move to folder' : id ? (kind === 'folder' ? 'Rename folder' : 'Edit feed') : 'Create folder';
+  document.getElementById('library-name-group').hidden = mode === 'move';
+  document.getElementById('library-name').required = mode !== 'move';
   document.getElementById('library-name').value = item ? (kind === 'folder' ? item.name : feedTitle(id)) : '';
-  document.getElementById('library-url-group').hidden = kind !== 'feed';
-  document.getElementById('library-url').required = kind === 'feed';
+  document.getElementById('library-url-group').hidden = kind !== 'feed' || mode === 'move';
+  document.getElementById('library-url').required = kind === 'feed' && mode !== 'move';
   document.getElementById('library-url').value = item?.url || '';
   const excluded = kind === 'folder' && id ? libraryDescendants(id) : new Set();
   const parent = document.getElementById('library-parent');
-  parent.innerHTML = '<option value="">Library (no folder)</option>' + folders.filter(f => !excluded.has(f.id)).map(f => `<option value="${f.id}">${escHtml(folderPath(f.id))}</option>`).join('');
-  parent.value = item ? (item.parent_id || item.folder_id || '') : (activeFilter.startsWith('folder:') ? activeFilter.slice(7) : '');
-  parent.onchange = updateLibraryPositions;
-  updateLibraryPositions();
+  parent.innerHTML = '<option value="">No folder</option>' + folders.filter(f => !excluded.has(f.id)).map(f => `<option value="${f.id}">${escHtml(folderPath(f.id))}</option>`).join('');
+  parent.value = item ? (item.parent_id || item.folder_id || '') : (parentId || (activeFilter.startsWith('folder:') ? activeFilter.slice(7) : ''));
+  document.getElementById('library-parent-group').hidden = !!id && mode !== 'move';
+  document.getElementById('library-save').textContent = mode === 'move' ? 'Move' : id ? 'Save' : 'Create';
   document.getElementById('library-error').textContent = '';
   openModal('library-modal-backdrop');
 }
@@ -121,13 +131,6 @@ function folderPath(id) {
   const names = [], seen = new Set();
   while (id && !seen.has(id)) { seen.add(id); const f = folders.find(x => x.id === id); if (!f) break; names.unshift(f.name); id = f.parent_id; }
   return names.join(' / ');
-}
-function updateLibraryPositions() {
-  const select = document.getElementById('library-before');
-  select.innerHTML = '<option value="">At the end</option>' + libraryChildren(document.getElementById('library-parent').value || null).filter(i => i.id !== libraryEditing.id).map(i => `<option value="${i.id}">Before ${escHtml(i.kind === 'folder' ? i.name : feedTitle(i.id))}</option>`).join('');
-  const item = libraryChildren(document.getElementById('library-parent').value || null);
-  const next = item[item.findIndex(i => i.id === libraryEditing.id) + 1];
-  select.value = libraryEditing.id && next && next.id !== libraryEditing.id ? next.id : '';
 }
 async function saveLibraryItem() {
   if (libraryBusy) return;
@@ -138,16 +141,22 @@ async function saveLibraryItem() {
   libraryBusy = true;
   document.getElementById('library-save').disabled = true;
   try {
-    const { kind, id } = libraryEditing;
-    await writeLibraryMove(kind, id, document.getElementById('library-parent').value || null, document.getElementById('library-before').value || null, name, url);
+    const { kind, id, mode } = libraryEditing;
+    const parent = document.getElementById('library-parent').value || null;
+    const siblings = libraryChildren(parent);
+    const next = id && mode !== 'move' ? siblings[siblings.findIndex(i => i.id === id) + 1] : null;
+    await writeLibraryMove(kind, id, parent, next?.id === id ? null : next?.id || null, mode === 'move' ? null : name, kind === 'feed' && mode !== 'move' ? url : null);
     closeModal('library-modal-backdrop');
   } catch (error) { document.getElementById('library-error').textContent = error.message; }
   finally { libraryBusy = false; document.getElementById('library-save').disabled = false; }
 }
 async function writeLibraryMove(kind, id, parent, before = null, name = null, url = null) {
+  if (kind !== 'feed') url = null;
   const { error } = await sb.rpc('save_library_item', { item_kind: kind, item_id: id, destination: parent, before_id: before, new_name: name, new_url: url });
   if (error) throw error;
   await loadFeeds(); saveCache(); renderLibrary(); renderArticles();
+  if (parent) collapsedFolders.delete(parent);
+  renderLibrary();
 }
 function removeLibraryItem(kind, id) {
   closeLibraryMenu();
@@ -181,24 +190,46 @@ async function loadFolderPage() {
   finally { loadingMoreArticles = false; renderArticles(); }
 }
 document.addEventListener('click', e => { if (!e.target.closest('#library-menu')) closeLibraryMenu(); });
+function clearLibraryDrop() {
+  document.querySelectorAll('.drop-target, .drop-before, .drop-after').forEach(el => el.classList.remove('drop-target', 'drop-before', 'drop-after'));
+}
+function libraryDropDestination(target, y) {
+  if (!target || !libraryDrag || target.dataset.id === libraryDrag.id) return null;
+  if (target.dataset.root) return { parent: null, before: null, style: 'drop-target' };
+  const folder = target.dataset.kind === 'folder';
+  const item = (folder ? folders : feeds).find(i => i.id === target.dataset.id);
+  if (!item) return null;
+  const rect = target.getBoundingClientRect();
+  const ratio = (y - rect.top) / rect.height;
+  const parent = item.parent_id || item.folder_id || null;
+  if (folder && ratio > .25 && ratio < .75) return { parent: item.id, before: null, style: 'drop-target' };
+  const after = ratio >= .5;
+  const siblings = libraryChildren(parent).filter(i => i.id !== libraryDrag.id);
+  const next = siblings[siblings.findIndex(i => i.id === item.id) + 1];
+  return { parent, before: after ? next?.id || null : item.id, style: after ? 'drop-after' : 'drop-before' };
+}
+function highlightLibraryDrop(target, y) {
+  clearLibraryDrop();
+  const destination = libraryDropDestination(target, y);
+  if (destination) target.classList.add(destination.style);
+}
 document.addEventListener('dragover', e => {
   const target = e.target.closest('.library-row, .library-root-drop');
-  document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
-  if (target && libraryDrag) { e.preventDefault(); target.classList.add('drop-target'); }
+  highlightLibraryDrop(target, e.clientY);
+  if (target && libraryDrag) e.preventDefault();
 });
 document.addEventListener('drop', async e => {
   const target = e.target.closest('.library-row, .library-root-drop');
-  document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+  clearLibraryDrop();
   if (!target || !libraryDrag || libraryBusy) return;
   e.preventDefault();
+  const destination = libraryDropDestination(target, e.clientY);
   const { kind, id } = libraryDrag; libraryDrag = null;
-  if (target.dataset.id === id) return;
-  const item = (target.dataset.kind === 'folder' ? folders : feeds).find(i => i.id === target.dataset.id);
-  const into = target.dataset.kind === 'folder' && e.clientY > target.getBoundingClientRect().top + 12;
-  const parent = into ? item.id : (item?.parent_id || item?.folder_id || null);
+  if (!destination) return;
+  if (kind === 'folder' && libraryDescendants(id).has(destination.parent)) { showToast('Choose a folder outside this folder.'); return; }
   libraryBusy = true;
-  try { await writeLibraryMove(kind, id, parent, into ? null : item?.id || null); }
+  try { await writeLibraryMove(kind, id, destination.parent, destination.before); }
   catch (error) { showToast(error.message); }
   finally { libraryBusy = false; }
 });
-document.addEventListener('dragend', () => { libraryDrag = null; document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target')); });
+document.addEventListener('dragend', () => { libraryDrag = null; clearLibraryDrop(); });

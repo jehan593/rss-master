@@ -302,6 +302,7 @@ create or replace function public.save_library_item(item_kind text, item_id uuid
 returns void language plpgsql security definer set search_path = public as $$
 declare owner_id uuid := auth.uid(); slot integer; old_parent uuid; current_url text;
 begin
+  new_url := case when item_kind = 'feed' then nullif(trim(new_url), '') else null end;
   if owner_id is null then raise exception 'Sign in first'; end if;
   perform pg_advisory_xact_lock(hashtextextended(owner_id::text, 0));
   if item_kind not in ('folder','feed') then raise exception 'Invalid item'; end if;

@@ -7,7 +7,7 @@
 <title>rss-master</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
 <meta name="theme-color" content="#2e3440">
-<link rel="stylesheet" href="style.css?v=20261012">
+<link rel="stylesheet" href="style.css?v=20261012b">
 </head>
 <body>
 
@@ -38,12 +38,12 @@
   <aside id="navigation-sidebar" aria-label="Feeds and folders">
     <div class="sidebar-heading"><strong>Library</strong><div>
       <button class="btn icon-btn" onclick="showFeedForm()" title="Add feed" aria-label="Add feed">＋</button>
-      <button class="btn icon-btn" onclick="editLibraryItem('folder')" title="Create folder" aria-label="Create folder">▣</button>
+      <button class="btn icon-btn" onclick="editLibraryItem('folder')" title="Create folder" aria-label="Create folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5h6l2 2h10v12H3zM12 10v6M9 13h6"/></svg></button>
       <button class="btn icon-btn mobile-sidebar-close" onclick="closeFeedSidebar()" aria-label="Close sidebar">×</button>
     </div></div>
     <div class="feed-search-wrap"><input class="feed-sidebar-search" id="library-search" placeholder="Search library…" aria-label="Search feeds and folders" oninput="renderFeedSidebar()"></div>
     <div id="library-tree"></div>
-    <div class="sidebar-footer"><button class="btn" onclick="showLibrarySection('settings')">⚙ Settings</button><button class="btn" onclick="showLibrarySection('feeds')">Import / export</button></div>
+    <div class="sidebar-footer"><button class="btn" onclick="showLibrarySection('settings')">⚙ Settings</button></div>
   </aside>
   <button id="sidebar-shade" aria-label="Close sidebar" onclick="closeFeedSidebar()"></button>
   <div class="section active" id="section-articles">
@@ -61,17 +61,9 @@
     <div id="articles-list"></div>
   </div>
 
-  <div class="section" id="section-feeds">
+  <div class="section" id="section-settings">
     <div class="manage-header">
-      <h2>Feeds</h2>
-    </div>
-
-    <div class="settings-card">
-      <div class="form-group">
-        <label for="new-feed-url">Feed or website URL</label>
-        <input type="text" id="new-feed-url" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://example.com" onkeydown="if(event.key==='Enter')addFeed()">
-      </div>
-      <button class="btn-accent" id="add-feed-btn" onclick="addFeed()">Add feed</button>
+      <h2>Settings</h2>
     </div>
 
     <div class="settings-card">
@@ -79,16 +71,8 @@
       <div class="import-export-row">
         <button class="btn btn-sm" onclick="exportOpml()">Export OPML</button>
         <button class="btn btn-sm" onclick="document.getElementById('import-opml-input').click()">Import OPML</button>
-        <input type="file" id="import-opml-input" accept=".opml,.xml,text/xml" style="display:none;" onchange="importOpml(event)">
+        <input type="file" id="import-opml-input" accept=".opml,.xml,text/xml" hidden onchange="importOpml(event)">
       </div>
-    </div>
-
-    <div id="manage-feeds-list"></div>
-  </div>
-
-  <div class="section" id="section-settings">
-    <div class="manage-header">
-      <h2>Settings</h2>
     </div>
 
     <div class="settings-card">
@@ -171,17 +155,24 @@
 <div id="library-modal-backdrop" onclick="if(event.target===this)closeModal(this.id)">
   <form class="modal" role="dialog" aria-modal="true" aria-labelledby="library-modal-title" onsubmit="event.preventDefault();saveLibraryItem()">
     <h3 id="library-modal-title">Edit item</h3>
-    <div class="form-group"><label for="library-name">Name</label><input id="library-name" required maxlength="150"></div>
+    <div class="form-group" id="library-name-group"><label for="library-name">Name</label><input id="library-name" required maxlength="150"></div>
     <div class="form-group" id="library-url-group"><label for="library-url">Feed URL</label><input id="library-url" type="url" inputmode="url"></div>
-    <div class="form-group"><label for="library-parent">Folder</label><select id="library-parent"></select></div>
-    <div class="form-group" id="library-order-group"><label for="library-before">Position</label><select id="library-before"></select></div>
+    <div class="form-group" id="library-parent-group"><label for="library-parent">Folder</label><select id="library-parent"></select></div>
     <div id="library-error" role="alert"></div>
     <div class="modal-actions"><button type="button" class="btn" onclick="closeModal('library-modal-backdrop')">Cancel</button><button class="btn-accent" id="library-save">Save</button></div>
   </form>
 </div>
 <div id="library-menu" role="menu" hidden></div>
+<div id="add-feed-modal-backdrop" onclick="if(event.target===this)closeModal(this.id)">
+  <form class="modal" role="dialog" aria-modal="true" aria-labelledby="add-feed-title" onsubmit="event.preventDefault();addFeed()">
+    <h3 id="add-feed-title">Add feed</h3>
+    <div class="form-group"><label for="new-feed-url">Feed or website URL</label><input id="new-feed-url" type="url" inputmode="url" autocapitalize="none" spellcheck="false" required placeholder="https://example.com"></div>
+    <div class="form-group"><label for="new-feed-folder">Folder</label><select id="new-feed-folder" onchange="addFeedFolder=this.value||null"></select></div>
+    <div class="modal-actions"><button type="button" class="btn" onclick="closeModal('add-feed-modal-backdrop')">Cancel</button><button class="btn-accent" id="add-feed-btn">Add feed</button></div>
+  </form>
+</div>
 
-<script src="library.js?v=20261012"></script>
-<script src="app.js?v=20261012"></script>
+<script src="library.js?v=20261012b"></script>
+<script src="app.js?v=20261012b"></script>
 </body>
 </html>
