@@ -3,9 +3,10 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 function setup() {
-  const context = vm.createContext({ document: { addEventListener() {} } });
+  const storage = new Map();
+  const context = vm.createContext({ document: { addEventListener() {} }, localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) } });
   vm.runInContext(fs.readFileSync(require.resolve('../library.js'), 'utf8'), context);
-  vm.runInContext(`let folders = [
+  vm.runInContext(`let session = null; let folders = [
     {id:'a', name:'A', parent_id:null, position:2},
     {id:'b', name:'B', parent_id:'a', position:0},
     {id:'c', name:'C', parent_id:'b', position:0}];
@@ -50,4 +51,22 @@ test('folders can be dropped before or after feeds in the same list', () => {
   assert.equal(run('libraryDropDestination(target, 103).before'), 'root');
   assert.equal(run('libraryDropDestination(target, 141).parent'), null);
   assert.equal(run('libraryDropDestination(target, 141).before'), null);
+});
+
+test('folder expansion persists and is isolated by account', () => {
+  const run = setup();
+  run("session={user:{id:'alice'}}; renderLibrary=()=>{}; toggleLibraryFolder('a'); folderExpansionUser=null; collapsedFolders.clear(); loadFolderExpansionState();");
+  assert.equal(run("collapsedFolders.has('a')"), true);
+  run("session={user:{id:'bob'}}; loadFolderExpansionState();");
+  assert.equal(run('collapsedFolders.size'), 0);
+  run("session={user:{id:'alice'}}; loadFolderExpansionState(); toggleLibraryFolder('a'); folderExpansionUser=null; collapsedFolders.clear(); loadFolderExpansionState();");
+  assert.equal(run("collapsedFolders.has('a')"), false);
+  run('session=null; loadFolderExpansionState();');
+  assert.equal(run('collapsedFolders.size'), 0);
+});
+
+test('folder controls work when browser storage fails', () => {
+  const run = setup();
+  run("session={user:{id:'alice'}}; renderLibrary=()=>{}; localStorage.getItem=localStorage.setItem=()=>{throw Error('Storage unavailable')}; toggleLibraryFolder('a');");
+  assert.equal(run("collapsedFolders.has('a')"), true);
 });
