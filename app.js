@@ -105,20 +105,21 @@ function renderFeedSidebar() { renderLibrary(); }
 function openFeedSidebar() {
   document.body.classList.add('sidebar-open');
   document.getElementById('mobile-library-btn').setAttribute('aria-expanded', 'true');
-  document.getElementById('feed-switcher-btn').setAttribute('aria-expanded', 'true');
-  // Preserve the sticky toolbar's scroll container and the current reading position.
-  document.getElementById('library-search').focus({ preventScroll: true });
+  document.getElementById('sidebar-close-btn').focus({ preventScroll: true });
 }
 
 function closeFeedSidebar() {
   const wasOpen = document.body.classList.contains('sidebar-open');
   document.body.classList.remove('sidebar-open');
-  document.getElementById('feed-switcher-btn').setAttribute('aria-expanded', 'false');
   document.getElementById('mobile-library-btn').setAttribute('aria-expanded', 'false');
   if (wasOpen) {
-    const button = document.getElementById('feed-switcher-btn');
-    (button.getClientRects().length ? button : document.getElementById('mobile-library-btn')).focus({ preventScroll: true });
+    focusLibraryNavigation();
   }
+}
+
+function focusLibraryNavigation() {
+  const button = document.getElementById('mobile-library-btn');
+  (button.getClientRects().length ? button : document.getElementById('current-feed-label')).focus({ preventScroll: true });
 }
 
 function setFilter(filter) {
@@ -880,7 +881,8 @@ function closeModal(id) {
   document.body.style.overflow = anotherModal ? 'hidden' : '';
   const target = backdrop.returnFocus;
   if (target?.isConnected && !target.disabled) target.focus();
-  else (anotherModal || document.getElementById('feed-switcher-btn')).focus();
+  else if (anotherModal) anotherModal.focus();
+  else focusLibraryNavigation();
 }
 
 document.addEventListener('keydown', e => {

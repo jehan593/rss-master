@@ -79,9 +79,7 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .section.active { display: block; }
 .articles-header { position: sticky; top: var(--header-height); z-index: 90; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -16px 0 0; padding: 16px 0; background: var(--bg); }
 .feed-switcher-bar { position: relative; min-width: 0; }
-.feed-switcher-btn { max-width: 100%; }
-.feed-switcher-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.feed-switcher-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.current-feed-title { color: var(--text); font-size: 16px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
 .articles-toolbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .unread-count { font-size: 11px; }
 #feed-sidebar-backdrop { display: none; }
@@ -254,8 +252,6 @@ select { width: 100%; min-height: 44px; padding: 8px; color: var(--text); backgr
 @media (min-width: 801px) {
   main { margin-left: var(--sidebar-width); max-width: none; padding: 16px; }
   main > .section { max-width: var(--max-w); margin: 0 auto; }
-  .feed-switcher-btn { border: 0; padding-left: 0; color: var(--text); font-size: 16px; pointer-events: none; }
-  .feed-switcher-btn svg { display: none; }
   .library-drag-handle { display: none; }
   .library-select { padding-right: 28px; }
   .library-more { position: absolute; right: 0; opacity: 0; }
