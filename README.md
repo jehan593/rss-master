@@ -180,3 +180,25 @@ tracks current source entries and recently absent entries. Unverifiable or
 paused feeds retain history conservatively; this is not a hard database-size
 ceiling. Articles returning after their 90-day absence history has expired
 can appear unread again.
+
+## Folder library
+
+The sidebar replaces the old feed picker and top tabs. Use its icon buttons to
+add a feed or create a folder. Folders can contain feeds and other folders;
+selecting a folder shows articles from its feeds and subfolders. Right-click an item
+or use its ⋮ button to rename, edit a feed URL, move, reorder, or delete it.
+Deleting a folder keeps its contents and moves them to its parent.
+
+Drag items onto a folder to move inside it. Drop in the top edge of a row to
+place an item before it, or on the Library drop area to move it out of all folders.
+On mobile, open the drawer with the menu button and drag using the ⠿ handle.
+The item menu also provides folder and position selectors without dragging.
+Settings and import/export are available at the bottom of the sidebar.
+
+Existing deployments need `supabase/migrations/20261012000000_library_folders.sql`.
+The fresh-install schema includes the same folder support. Folder changes are
+saved together and prevent moving a folder inside itself or its subfolders.
+Run `node --test tests/*.test.cjs` for JavaScript checks. Optional browser checks
+in `tests/browser-library.py` use Python Playwright and mocked account data;
+`RSS_TEST_BROWSER` can point to a Chromium executable. The database checks in
+`tests/library.sql` roll back all their changes.
