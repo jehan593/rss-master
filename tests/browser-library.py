@@ -39,6 +39,7 @@ try:
             assert page.locator('#current-feed-label').evaluate('el=>el.tagName') == 'H2'
             assert page.locator('#feed-switcher-btn').count() == 0
             assert page.locator('#library-tree .feed-color-dot').count() == 0
+            assert page.locator('[data-id="feed-a"] .library-item-icon').evaluate("el=>el.style.color.length > 0")
             if mobile:
                 assert page.evaluate('document.activeElement.id') == 'sidebar-close-btn'
                 assert not page.locator('#library-search').evaluate('el=>el===document.activeElement')
