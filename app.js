@@ -14,6 +14,7 @@ const REFRESH_MIN_INTERVAL_MS = 60 * 1000;
 
 let session = null;
 let feeds = [];
+let folders = [];
 let articles = [];
 // Stable feed/GUID keys preserve read status when article rows are replaced.
 let readMarkers = new Set();
@@ -52,6 +53,7 @@ function loadCache() {
     const a = localStorage.getItem('rss_articles_cache');
     const r = localStorage.getItem('rss_read_markers_cache');
     if (f) feeds = JSON.parse(f);
+    folders = JSON.parse(localStorage.getItem('rss_folders_cache') || '[]');
     if (a) articles = JSON.parse(a);
     if (r) readMarkers = new Set(JSON.parse(r));
   } catch (e) {}
@@ -62,25 +64,13 @@ function saveCache() {
   try {
     localStorage.setItem('rss_cache_user', session?.user.id || '');
     localStorage.setItem('rss_feeds_cache', JSON.stringify(feeds));
+    localStorage.setItem('rss_folders_cache', JSON.stringify(folders));
     localStorage.setItem('rss_articles_cache', JSON.stringify(articles));
     localStorage.setItem('rss_read_markers_cache', JSON.stringify([...readMarkers]));
   } catch (error) {
     // A full/disabled browser cache must not prevent the subsequent server write.
     console.error('Offline cache unavailable', error);
   }
-}
-
-function switchTab(name, el) {
-  document.querySelectorAll('.tab').forEach(t => {
-    t.classList.remove('active');
-    t.removeAttribute('aria-current');
-  });
-  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-  el.classList.add('active');
-  el.setAttribute('aria-current', 'page');
-  document.getElementById('section-' + name).classList.add('active');
-  if (name === 'feeds') renderManageFeeds();
-  if (name === 'articles') renderArticles();
 }
 
 function timeAgo(iso) {
@@ -111,74 +101,36 @@ function feedColor(feedId) {
   return `hsl(${h}, ${s}%, ${l}%)`;
 }
 
-function renderFeedSidebar() {
-  const listEl = document.getElementById('feed-sidebar-list');
-  const labelEl = document.getElementById('current-feed-label');
-  if (labelEl) labelEl.textContent = activeFilter === 'all' ? 'All feeds' : feedTitle(activeFilter);
-  if (!listEl) return;
-  const searchInput = document.getElementById('feed-sidebar-search');
-  const query = searchInput.value.trim().toLowerCase();
-  document.getElementById('feed-search-clear').hidden = !searchInput.value;
-
-  if (!feeds.length) {
-    listEl.innerHTML = `<div class="empty-state"><p>No feeds yet</p></div>`;
-    return;
-  }
-
-  const unreadCountFor = feedId => articles.filter(a => (feedId === 'all' || a.feed_id === feedId) && !readIds.has(a.id)).length;
-  const sorted = [...feeds].sort((a, b) => a.position - b.position)
-    .filter(f => !query || feedTitle(f.id).toLowerCase().includes(query));
-
-  const allUnread = unreadCountFor('all');
-  let html = `<button class="feed-sidebar-item ${activeFilter === 'all' ? 'active' : ''} ${allUnread ? 'has-unread' : ''}" aria-pressed="${activeFilter === 'all'}" onclick="setFilter('all')">
-    <span class="feed-color-dot" aria-hidden="true"></span>
-    <span class="fs-name">All feeds</span>
-    <span class="fs-count">${allUnread}</span>
-  </button>`;
-
-  html += sorted.map(f => {
-    const count = unreadCountFor(f.id);
-    const isActive = activeFilter === f.id;
-    return `
-<button class="feed-sidebar-item ${isActive ? 'active' : ''} ${count ? 'has-unread' : ''}" aria-pressed="${isActive}" onclick="setFilter('${f.id}')">
-      <span class="feed-color-dot" style="background:${feedColor(f.id)}" aria-hidden="true"></span>
-      <span class="fs-name">${escHtml(feedTitle(f.id))}</span>
-      <span class="fs-count">${count}</span>
-    </button>`;
-  }).join('');
-
-  listEl.innerHTML = html + (query && !sorted.length ? '<div class="empty-state"><p>No matching feeds</p></div>' : '');
-}
-
-function clearFeedSearch() {
-  const input = document.getElementById('feed-sidebar-search');
-  input.value = '';
-  renderFeedSidebar();
-  input.focus();
-}
-
+function renderFeedSidebar() { renderLibrary(); }
 function openFeedSidebar() {
-  document.getElementById('feed-sidebar-backdrop').classList.add('open');
+  document.body.classList.add('sidebar-open');
+  document.getElementById('mobile-library-btn').setAttribute('aria-expanded', 'true');
   document.getElementById('feed-switcher-btn').setAttribute('aria-expanded', 'true');
   // Preserve the sticky toolbar's scroll container and the current reading position.
-  document.querySelector('.feed-sidebar-popup').focus({ preventScroll: true });
+  document.getElementById('library-search').focus({ preventScroll: true });
 }
 
 function closeFeedSidebar() {
-  const backdrop = document.getElementById('feed-sidebar-backdrop');
-  if (!backdrop.classList.contains('open')) return;
-  backdrop.classList.remove('open');
+  const wasOpen = document.body.classList.contains('sidebar-open');
+  document.body.classList.remove('sidebar-open');
   document.getElementById('feed-switcher-btn').setAttribute('aria-expanded', 'false');
-  document.getElementById('feed-switcher-btn').focus({ preventScroll: true });
+  document.getElementById('mobile-library-btn').setAttribute('aria-expanded', 'false');
+  if (wasOpen) {
+    const button = document.getElementById('feed-switcher-btn');
+    (button.getClientRects().length ? button : document.getElementById('mobile-library-btn')).focus({ preventScroll: true });
+  }
 }
 
 function setFilter(filter) {
   activeFilter = filter;
+  showLibrarySection('articles');
   renderFeedSidebar();
   renderArticles();
   closeFeedSidebar();
   window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-  if (filter !== 'all' && !articles.some(a => a.feed_id === filter && a._loadedForFeed)) {
+  if (filter.startsWith('folder:')) {
+    libraryFeedIds(filter.slice(7)).forEach(id => loadArticlesForFeed(id));
+  } else if (filter !== 'all' && !articles.some(a => a.feed_id === filter && a._loadedForFeed)) {
     loadArticlesForFeed(filter);
   }
 }
@@ -190,7 +142,7 @@ function feedTitle(feedId) {
 
 function getVisibleArticles() {
   return articles
-    .filter(a => activeFilter === 'all' || a.feed_id === activeFilter)
+    .filter(a => activeFilter === 'all' || a.feed_id === activeFilter || (activeFilter.startsWith('folder:') && libraryFeedIds(activeFilter.slice(7)).includes(a.feed_id)))
     .sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
 }
 
@@ -207,7 +159,7 @@ function renderArticles() {
     return;
   }
   if (!feeds.length) {
-    list.innerHTML = `<div class="empty-state"><p>No feeds yet</p><small>Add your first feed in Feeds.</small></div>`;
+    list.innerHTML = `<div class="empty-state"><p>No feeds yet</p><small>Use the ＋ button in the sidebar to add your first feed.</small></div>`;
     return;
   }
   if (!visible.length) {
@@ -215,7 +167,7 @@ function renderArticles() {
     return;
   }
 
-  const hasMore = activeFilter === 'all' ? allArticlesHasMore : !!feedArticlesHasMore[activeFilter];
+  const hasMore = activeFilter.startsWith('folder:') ? libraryFeedIds(activeFilter.slice(7)).some(id => feedArticlesHasMore[id]) : activeFilter === 'all' ? allArticlesHasMore : !!feedArticlesHasMore[activeFilter];
   const loadMoreHtml = hasMore ? `
     <div class="load-more-wrap">
       <button class="btn btn-sm btn-ghost" onclick="loadMoreArticles()" ${loadingMoreArticles ? 'disabled' : ''}>
@@ -577,7 +529,7 @@ async function addFeed() {
 
 async function insertFeed(feedUrl) {
   const { data, error } = await sb.from('feeds')
-    .insert({ url: feedUrl, user_id: session.user.id })
+    .insert({ url: feedUrl, user_id: session.user.id, folder_id: activeFilter.startsWith('folder:') ? activeFilter.slice(7) : null })
     .select()
     .single();
 
@@ -619,6 +571,9 @@ async function choosePendingFeed(i) {
 }
 
 function deleteFeed(id) {
+  document.getElementById('confirm-title').textContent = 'Remove feed?';
+  document.getElementById('confirm-description').textContent = 'This removes the feed and its saved articles. It cannot be undone.';
+  document.getElementById('confirm-delete-btn').textContent = 'Remove feed';
   const feed = feeds.find(f => f.id === id);
   if (!feed) return;
   editingDeleteFeedId = id;
@@ -686,6 +641,7 @@ async function loadFeeds() {
   if (session?.user.id !== userId) return;
   if (error) { console.error('loadFeeds failed', error); return; }
   feeds = data || [];
+  await loadFolders();
   // Feed list is authoritative: drop cached articles whose feed no longer
   // exists (e.g. removed on another device). Only after a successful load, so
   // a failed fetch never wipes the offline cache.
@@ -716,7 +672,8 @@ async function loadArticles() {
   saveCache();
   renderFeedSidebar();
   renderArticles();
-  if (activeFilter !== 'all') await loadArticlesForFeed(activeFilter);
+  if (activeFilter.startsWith('folder:')) await Promise.all(libraryFeedIds(activeFilter.slice(7)).map(loadArticlesForFeed));
+  else if (activeFilter !== 'all') await loadArticlesForFeed(activeFilter);
 }
 
 async function loadArticlesForFeed(feedId) {
@@ -739,6 +696,7 @@ async function loadArticlesForFeed(feedId) {
 }
 
 async function loadMoreArticles() {
+  if (activeFilter.startsWith('folder:')) { await loadFolderPage(); return; }
   if (!sb || !session || loadingMoreArticles) return;
   const userId = session.user.id;
   const version = articleLoadVersion;
@@ -819,7 +777,7 @@ function dropOrphanedArticles() {
   for (const feedId of Object.keys(feedArticlesHasMore)) {
     if (!knownFeedIds.has(feedId)) delete feedArticlesHasMore[feedId];
   }
-  if (activeFilter !== 'all' && !knownFeedIds.has(activeFilter)) activeFilter = 'all';
+  if (activeFilter !== 'all' && !activeFilter.startsWith('folder:') && !knownFeedIds.has(activeFilter)) activeFilter = 'all';
 
   recomputeReadIds();
   saveCache();
@@ -932,6 +890,7 @@ async function doSignOut() {
 
 function resetAccountState() {
   feeds = [];
+  folders = [];
   articles = [];
   readMarkers = new Set();
   readIds = new Set();
@@ -1034,15 +993,15 @@ function closeModal(id) {
   document.body.style.overflow = anotherModal ? 'hidden' : '';
   const target = backdrop.returnFocus;
   if (target?.isConnected && !target.disabled) target.focus();
-  else (anotherModal || document.querySelector('.tab.active')).focus();
+  else (anotherModal || document.getElementById('feed-switcher-btn')).focus();
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeConfirmModal(); closeFeedPicker(); closeAuthModal(); closeFeedSidebar(); }
+  if (e.key === 'Escape') { closeModal('library-modal-backdrop'); closeLibraryMenu(); closeConfirmModal(); closeFeedPicker(); closeAuthModal(); closeFeedSidebar(); }
   if (e.key !== 'Tab') return;
-  const popup = document.querySelector('.open > [role="dialog"], #feed-sidebar-backdrop.open .feed-sidebar-popup');
+  const popup = document.querySelector('.open > [role="dialog"]') || (document.body.classList.contains('sidebar-open') && window.matchMedia('(max-width: 800px)').matches ? document.getElementById('navigation-sidebar') : null);
   if (!popup) return;
-  const controls = [...popup.querySelectorAll('button, input, a[href], [tabindex="0"]')]
+  const controls = [...popup.querySelectorAll('button, input, select, a[href], [tabindex="0"]')]
     .filter(el => !el.disabled && el.getClientRects().length);
   const first = controls[0];
   const last = controls[controls.length - 1];
