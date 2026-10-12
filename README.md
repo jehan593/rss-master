@@ -183,19 +183,23 @@ can appear unread again.
 
 ## Folder library
 
-The sidebar replaces the old feed picker and top tabs. Use its icon buttons to
-add a feed or create a folder. Folders can contain feeds and other folders;
+The sidebar replaces the old feed picker and top tabs. Its icon buttons open
+small dialogs to add a feed or create a folder. Choose a folder when adding;
+new items appear at the end. Folders can contain feeds and other folders;
 selecting a folder shows articles from its feeds and subfolders. Right-click an item
 or use its ⋮ button to rename, edit a feed URL, move, reorder, or delete it.
 Deleting a folder keeps its contents and moves them to its parent.
 
-Drag items onto a folder to move inside it. Drop in the top edge of a row to
-place an item before it, or on the Library drop area to move it out of all folders.
+Drag items onto the middle of a folder to move inside it. Drop near the top or
+bottom of a row to place an item before or after it. Drop on the Feeds heading
+to move it out of all folders. A line shows where the item will go.
 On mobile, open the drawer with the menu button and drag using the ⠿ handle.
-The item menu also provides folder and position selectors without dragging.
-Settings and import/export are available at the bottom of the sidebar.
+The item menu also has a separate “Move to folder” action without dragging.
+Settings is at the bottom of the sidebar and includes import/export.
 
 Existing deployments need `supabase/migrations/20261012000000_library_folders.sql`.
+Also apply `supabase/migrations/20261012010000_fix_folder_url_validation.sql`
+to fix folder creation from older browser tabs.
 The fresh-install schema includes the same folder support. Folder changes are
 saved together and prevent moving a folder inside itself or its subfolders.
 Run `node --test tests/*.test.cjs` for JavaScript checks. Optional browser checks
