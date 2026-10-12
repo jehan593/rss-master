@@ -24,13 +24,14 @@ try:
             page.route('https://cdn.jsdelivr.net/**', lambda route: route.fulfill(content_type='application/javascript', body=mock))
             page.goto(f'http://127.0.0.1:{server.server_port}')
             page.wait_for_function("document.getElementById('library-tree').children.length > 0")
-            page.evaluate('''() => {
+            fixture = '''() => {
               session={user:{id:'test-user'}};
               folders=window.__folders=[{id:'folder-a',name:'Technology',parent_id:null,position:0},{id:'folder-b',name:'Nested',parent_id:'folder-a',position:1}];
               feeds=window.__feeds=[{id:'feed-a',title:'Example feed',url:'https://example.com/rss',folder_id:'folder-b',position:2},{id:'feed-b',title:'Root feed',url:'https://example.org/rss',folder_id:null,position:3}];
               articles=[{id:'article-a',feed_id:'feed-a',guid:'a',title:'Nested article',published_at:new Date().toISOString()}];
               renderFeedSidebar();renderArticles();
-            }''')
+            }'''
+            page.evaluate(fixture)
             if mobile:
                 assert not page.locator('#navigation-sidebar').is_visible()
                 page.locator('#feed-switcher-btn').click()
@@ -43,6 +44,9 @@ try:
             feed_label = page.locator('[data-id="feed-a"] .fs-name').bounding_box()
             assert child_label['x'] > parent_label['x']
             assert feed_label['x'] > child_label['x']
+            row = page.locator('[data-id="folder-a"]')
+            assert row.bounding_box()['height'] <= (36 if mobile else 28)
+            assert row.locator('.folder-toggle').evaluate("el=>getComputedStyle(el).borderTopStyle") == 'solid'
             assert page.locator('.tabs-wrap').count() == 0
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             page.locator('[data-id="folder-a"] .library-select').click()
@@ -140,6 +144,21 @@ try:
             assert page.evaluate('window.__rpc[4].args.item_kind') == 'folder'
             assert page.evaluate('window.__rpc[4].args.destination') is None
             assert page.evaluate('window.__rpc[4].args.before_id') == 'feed-b'
+            page.locator('[data-id="folder-a"] .folder-toggle').click()
+            assert page.locator('[data-id="folder-b"]').count() == 0
+            page.reload()
+            page.wait_for_function("document.getElementById('library-tree').children.length > 0")
+            page.evaluate(fixture)
+            if mobile:
+                page.locator('#mobile-library-btn').click()
+            assert page.locator('[data-id="folder-a"] .folder-toggle').get_attribute('aria-expanded') == 'false'
+            assert page.locator('[data-id="folder-b"]').count() == 0
+            page.locator('[data-id="folder-a"] .folder-toggle').click()
+            page.reload()
+            page.wait_for_function("document.getElementById('library-tree').children.length > 0")
+            page.evaluate(fixture)
+            assert page.locator('[data-id="folder-a"] .folder-toggle').get_attribute('aria-expanded') == 'true'
+            assert page.locator('[data-id="folder-b"]').count() == 1
             assert not errors, errors
             print(f'PASS library UI at {width}px (mobile={mobile})')
             context.close()

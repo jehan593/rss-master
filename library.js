@@ -3,6 +3,31 @@ let libraryBusy = false;
 let libraryDrag = null;
 let addFeedFolder = null;
 const collapsedFolders = new Set();
+let folderExpansionUser = null;
+
+function loadFolderExpansionState() {
+  const userId = session?.user.id || null;
+  if (folderExpansionUser === userId) return;
+  folderExpansionUser = userId;
+  collapsedFolders.clear();
+  if (!userId) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem('rss_collapsed_folders:' + userId) || '[]');
+    if (Array.isArray(saved)) saved.filter(id => typeof id === 'string').forEach(id => collapsedFolders.add(id));
+  } catch { /* Keep folder controls usable when browser storage is unavailable. */ }
+}
+function saveFolderExpansionState() {
+  if (!session) return;
+  try { localStorage.setItem('rss_collapsed_folders:' + session.user.id, JSON.stringify([...collapsedFolders])); }
+  catch { /* Folder controls still work without browser storage. */ }
+}
+function toggleLibraryFolder(id) {
+  loadFolderExpansionState();
+  if (collapsedFolders.has(id)) collapsedFolders.delete(id);
+  else collapsedFolders.add(id);
+  saveFolderExpansionState();
+  renderLibrary();
+}
 
 function libraryDescendants(id) {
   const found = new Set([id]);
@@ -44,6 +69,7 @@ async function loadFolders() {
   if (activeFilter.startsWith('folder:') && !folders.some(f => 'folder:' + f.id === activeFilter)) activeFilter = 'all';
 }
 function renderLibrary() {
+  loadFolderExpansionState();
   const tree = document.getElementById('library-tree');
   if (!tree) return;
   const query = document.getElementById('library-search').value.trim().toLowerCase();
@@ -58,7 +84,7 @@ function renderLibrary() {
     const title = folder ? item.name : feedTitle(item.id);
     const unread = count(folder ? libraryFeedIds(item.id) : [item.id]);
     return `<div class="library-row ${activeFilter === filter ? 'active' : ''}" data-kind="${item.kind}" data-id="${item.id}" draggable="true" style="--depth:${depth}">
-      ${folder ? `<button class="folder-toggle" aria-label="${collapsedFolders.has(item.id) ? 'Expand' : 'Collapse'} ${escAttr(title)}" aria-expanded="${!collapsedFolders.has(item.id)}" onclick="collapsedFolders.has('${item.id}')?collapsedFolders.delete('${item.id}'):collapsedFolders.add('${item.id}');renderLibrary()">${collapsedFolders.has(item.id) ? '▸' : '▾'}</button>` : '<span class="library-toggle-space"><span class="feed-color-dot" style="background:' + feedColor(item.id) + '"></span></span>'}
+      ${folder ? `<button class="folder-toggle" title="${collapsedFolders.has(item.id) ? 'Expand' : 'Collapse'} folder" aria-label="${collapsedFolders.has(item.id) ? 'Expand' : 'Collapse'} ${escAttr(title)}" aria-expanded="${!collapsedFolders.has(item.id)}" onclick="toggleLibraryFolder('${item.id}')">${collapsedFolders.has(item.id) ? '▸' : '▾'}</button>` : '<span class="library-toggle-space"><span class="feed-color-dot" style="background:' + feedColor(item.id) + '"></span></span>'}
       <button class="library-select" title="${escAttr(title)}" aria-pressed="${activeFilter === filter}" onclick="setFilter('${filter}')"><span class="library-item-icon" aria-hidden="true">${libraryIcon(folder ? 'folder' : 'feed')}</span><span class="fs-name">${escHtml(title)}</span><span class="fs-count">${unread || ''}</span></button>
       <button class="library-drag-handle" aria-label="Drag ${escAttr(title)}" title="Drag to move">⠿</button><button class="library-more" aria-label="Options for ${escAttr(title)}" onclick="openLibraryMenu(event,'${item.kind}','${item.id}')">⋮</button></div>` +
       (folder && (!collapsedFolders.has(item.id) || query) ? `<div class="library-children" data-parent="${item.id}">${branch(item.id, depth + 1)}</div>` : '');
@@ -155,7 +181,7 @@ async function writeLibraryMove(kind, id, parent, before = null, name = null, ur
   const { error } = await sb.rpc('save_library_item', { item_kind: kind, item_id: id, destination: parent, before_id: before, new_name: name, new_url: url });
   if (error) throw error;
   await loadFeeds(); saveCache(); renderLibrary(); renderArticles();
-  if (parent) collapsedFolders.delete(parent);
+  if (parent && collapsedFolders.delete(parent)) saveFolderExpansionState();
   renderLibrary();
 }
 function removeLibraryItem(kind, id) {

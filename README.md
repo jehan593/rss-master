@@ -196,6 +196,7 @@ to move it out of all folders. A line shows where the item will go.
 On mobile, open the drawer with the menu button and drag using the ⠿ handle.
 The item menu also has a separate “Move to folder” action without dragging.
 Settings is at the bottom of the sidebar and includes import/export.
+Expanded and collapsed folders are remembered for each account in this browser.
 
 Existing deployments need `supabase/migrations/20261012000000_library_folders.sql`.
 Also apply `supabase/migrations/20261012010000_fix_folder_url_validation.sql`
