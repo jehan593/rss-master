@@ -214,7 +214,7 @@ main { max-width: 1160px; padding-left: 296px; }
 #library-tree { overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; }
 .library-row { display: flex; align-items: center; min-height: 28px; padding-left: 4px; border-radius: 6px; }
 .library-children { margin-left: 18px; padding-left: 3px; border-left: 1px solid var(--border); }
-.library-toggle-space, .folder-toggle { display: flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; flex-shrink: 0; }
+.folder-toggle { display: flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; flex-shrink: 0; }
 #library-tree .fs-name { white-space: normal; overflow: visible; overflow-wrap: anywhere; line-height: 1.5; }
 #library-tree .fs-count:empty { display: none; }
 .library-row.active, .library-row:hover { background: var(--bg3); }
@@ -271,7 +271,8 @@ select { width: 100%; min-height: 44px; padding: 8px; color: var(--text); backgr
   .mobile-sidebar-close { display: inline-flex; }
   .library-more, .library-drag-handle { min-width: 32px; }
   .library-row, .library-select, .library-more, .library-drag-handle { min-height: 36px; }
-  .library-toggle-space, .folder-toggle { width: 28px; min-width: 28px; }
+  .library-children { margin-left: 28px; }
+  .folder-toggle { width: 28px; min-width: 28px; }
   .folder-toggle { height: 28px; min-height: 28px; }
   select { font-size: 16px; }
 }
