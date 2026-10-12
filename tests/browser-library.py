@@ -35,6 +35,14 @@ try:
                 assert not page.locator('#navigation-sidebar').is_visible()
                 page.locator('#feed-switcher-btn').click()
             assert page.locator('#navigation-sidebar').is_visible()
+            assert float(page.locator('#navigation-sidebar').evaluate("el=>getComputedStyle(el).fontSize.replace('px','')")) == 11
+            if not mobile:
+                assert page.locator('#navigation-sidebar').bounding_box()['width'] >= 300
+            parent_label = page.locator('[data-id="folder-a"] .fs-name').bounding_box()
+            child_label = page.locator('[data-id="folder-b"] .fs-name').bounding_box()
+            feed_label = page.locator('[data-id="feed-a"] .fs-name').bounding_box()
+            assert child_label['x'] > parent_label['x']
+            assert feed_label['x'] > child_label['x']
             assert page.locator('.tabs-wrap').count() == 0
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             page.locator('[data-id="folder-a"] .library-select').click()
@@ -47,7 +55,7 @@ try:
                 row.locator('.library-more').click()
             else:
                 row.click(button='right')
-            page.get_by_role('menuitem', name='Rename / edit link').click()
+            page.get_by_role('menuitem', name='Edit', exact=True).click()
             assert page.locator('#library-url').input_value() == 'https://example.com/rss'
             page.locator('#library-name').fill('Updated feed')
             assert not page.locator('#library-parent').is_visible()
@@ -115,6 +123,23 @@ try:
             page.locator('#navigation-sidebar').get_by_role('button', name='Settings').click()
             assert page.locator('#section-settings').get_by_role('button', name='Import OPML').is_visible()
             assert page.locator('#navigation-sidebar').get_by_role('button', name='Import / export').count() == 0
+            if mobile:
+                page.locator('#mobile-library-btn').click()
+                source = page.locator('[data-id="folder-a"] .library-drag-handle').bounding_box()
+                target = page.locator('[data-id="feed-b"]').bounding_box()
+                x, y = source['x'] + source['width']/2, source['y'] + source['height']/2
+                tx, ty = target['x'] + target['width']/2, target['y'] + 3
+                cdp.send('Input.dispatchTouchEvent', {'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
+                for step in range(1,6):
+                    cdp.send('Input.dispatchTouchEvent', {'type':'touchMove','touchPoints':[{'x':x+(tx-x)*step/5,'y':y+(ty-y)*step/5}]})
+                cdp.send('Input.dispatchTouchEvent', {'type':'touchEnd','touchPoints':[]})
+            else:
+                target = page.locator('[data-id="feed-b"]').bounding_box()
+                page.locator('[data-id="folder-a"]').drag_to(page.locator('[data-id="feed-b"]'), target_position={'x':target['width']/2,'y':3})
+            page.wait_for_function('window.__rpc.length === 5')
+            assert page.evaluate('window.__rpc[4].args.item_kind') == 'folder'
+            assert page.evaluate('window.__rpc[4].args.destination') is None
+            assert page.evaluate('window.__rpc[4].args.before_id') == 'feed-b'
             assert not errors, errors
             print(f'PASS library UI at {width}px (mobile={mobile})')
             context.close()
