@@ -42,3 +42,12 @@ test('folder writes never send a feed URL', async () => {
   assert.equal(run('sent.new_url'), null);
   assert.equal(run('sent.new_name'), 'New folder');
 });
+
+test('folders can be dropped before or after feeds in the same list', () => {
+  const run = setup();
+  run("libraryDrag={kind:'folder',id:'a'}; let target={dataset:{kind:'feed',id:'root'},getBoundingClientRect:()=>({top:100,height:44})};");
+  assert.equal(run('libraryDropDestination(target, 103).parent'), null);
+  assert.equal(run('libraryDropDestination(target, 103).before'), 'root');
+  assert.equal(run('libraryDropDestination(target, 141).parent'), null);
+  assert.equal(run('libraryDropDestination(target, 141).before'), null);
+});

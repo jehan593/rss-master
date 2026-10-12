@@ -22,6 +22,10 @@ begin
   if (select position from public.feeds where id=feed_id) >= (select position from public.folders where id=child_id) then raise exception 'Sibling ordering failed'; end if;
   perform public.delete_library_folder(root_id);
   if not exists(select 1 from public.feeds where id=feed_id and folder_id is null) or not exists(select 1 from public.folders where id=child_id and parent_id is null) then raise exception 'Folder deletion did not preserve children'; end if;
+  perform public.save_library_item('folder',child_id,null,feed_id,null,null);
+  if (select position from public.folders where id=child_id) >= (select position from public.feeds where id=feed_id) then raise exception 'Folder could not reorder before a feed'; end if;
+  perform public.save_library_item('folder',child_id,null,null,null,null);
+  if (select position from public.folders where id=child_id) <= (select position from public.feeds where id=feed_id) then raise exception 'Folder could not reorder after a feed'; end if;
 end;
 $$;
 rollback;
