@@ -176,10 +176,10 @@ function renderArticles() {
       </button>
     </div>` : '';
 
-  list.innerHTML = visible.map(a => renderArticleCard(a)).join('') + loadMoreHtml;
+  list.innerHTML = visible.map((a, i) => renderArticleCard(a, i)).join('') + loadMoreHtml;
 }
 
-function renderArticleCard(a) {
+function renderArticleCard(a, index = 0) {
   const isRead = readIds.has(a.id);
   const meta = `
 <span class="article-meta">
@@ -205,7 +205,7 @@ function renderArticleCard(a) {
     </div>` : '';
 
   return `
-    <article class="article-item ${isRead ? 'read' : 'unread'} ${isExpanded ? 'expanded' : ''}">
+    <article class="article-item animate-in ${isRead ? 'read' : 'unread'} ${isExpanded ? 'expanded' : ''}" style="--card-i:${index}">
       <button class="article-toggle" id="article-toggle-${a.id}" aria-expanded="${isExpanded}" onclick="toggleExpand('${a.id}')">
         <span class="article-unread-dot" style="background:${feedColor(a.feed_id)}" aria-hidden="true"></span>
         <span class="article-body">${title}${meta}</span>
