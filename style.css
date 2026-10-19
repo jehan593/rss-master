@@ -225,8 +225,7 @@ main { max-width: 1160px; padding-left: 296px; }
 #navigation-sidebar .feed-sidebar-search { padding: 6px 8px; min-height: 32px; }
 #navigation-sidebar .feed-sidebar-item { min-height: 30px; padding: 5px 8px; margin-bottom: 2px; }
 #library-tree { overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; }
-.library-row { display: flex; align-items: center; min-height: 28px; padding-left: 4px; border-radius: 6px; transition: background-color 140ms, transform 140ms; }
-.library-row:hover { transform: translateX(1px); }
+.library-row { display: flex; align-items: center; min-height: 28px; padding-left: 4px; border-radius: 6px; }
 .library-children { margin-left: 18px; padding-left: 3px; border-left: 1px solid var(--border); }
 .folder-toggle { display: flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; flex-shrink: 0; }
 #library-tree .fs-name { white-space: normal; overflow: visible; overflow-wrap: anywhere; line-height: 1.5; }
