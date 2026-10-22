@@ -32,6 +32,7 @@ let activeFilter = 'all'; // 'all' or a feed id
 let editingDeleteFeedId = null;
 let lastRefreshAt = 0;
 let expandedArticleId = null;
+let animateExpandId = null;
 
 let allArticlesOffset = 0;
 let allArticlesHasMore = true;
@@ -189,6 +190,7 @@ function renderArticleCard(a) {
     </span>`;
 
   const isExpanded = expandedArticleId === a.id;
+  const animateIn = isExpanded && animateExpandId === a.id;
 
   const title = `<span class="article-title">${escHtml(a.title)}</span>`;
 
@@ -205,7 +207,7 @@ function renderArticleCard(a) {
     </div>` : '';
 
   return `
-    <article class="article-item ${isRead ? 'read' : 'unread'} ${isExpanded ? 'expanded' : ''}">
+    <article class="article-item ${isRead ? 'read' : 'unread'} ${isExpanded ? 'expanded' : ''} ${animateIn ? 'expand-in' : ''}">
       <button class="article-toggle" id="article-toggle-${a.id}" aria-expanded="${isExpanded}" onclick="toggleExpand('${a.id}')">
         <span class="article-unread-dot" style="background:${feedColor(a.feed_id)}" aria-hidden="true"></span>
         <span class="article-body">${title}${meta}</span>
@@ -222,11 +224,14 @@ function toggleExpand(articleId) {
   const previouslyExpanded = expandedArticleId;
   if (expandedArticleId === articleId) {
     expandedArticleId = null;
+    animateExpandId = null;
   } else {
     expandedArticleId = articleId;
+    animateExpandId = articleId;
   }
   if (previouslyExpanded && !readIds.has(previouslyExpanded)) markRead(previouslyExpanded);
   renderArticles();
+  animateExpandId = null;
   document.getElementById('article-toggle-' + articleId)?.focus({ preventScroll: true });
 }
 
