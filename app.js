@@ -100,14 +100,12 @@ function syncDotInfo(feedId) {
   showToast(`${feedTitle(feedId)}: ${syncStatusText(feedId)}`);
 }
 
-// "Last sync X ago" in the toolbar, refreshed every 30s. Shows the most recent
-// sync attempt across all feeds (updates.fail also stamps last_fetched_at).
+// "Last sync X ago" under the feed title, refreshed every 30s. Shows the most
+// recent sync attempt across all feeds (updates.fail also stamps last_fetched_at).
 function updateSyncStatus() {
   const last = feeds.reduce((t, f) => (f.last_fetched_at && (!t || f.last_fetched_at > t) ? f.last_fetched_at : t), null);
   const label = last ? 'Last sync ' + timeAgo(last) : '';
-  const el = document.getElementById('last-synced');
-  if (el) { el.textContent = label; el.title = label; }
-  document.querySelectorAll('.last-synced-mobile').forEach(el => { el.textContent = label; el.title = label; });
+  document.querySelectorAll('.last-synced').forEach(el => { el.textContent = label; el.title = label; });
   const btn = document.getElementById('refresh-btn');
   if (btn) btn.title = label || 'Refresh';
 }
