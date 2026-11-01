@@ -923,6 +923,14 @@ function closeModal(id) {
   else focusLibraryNavigation();
 }
 
+// On mobile, tapping the empty sidebar background (not a row or control) closes it.
+const sidebarEl = document.getElementById('navigation-sidebar');
+sidebarEl?.addEventListener('click', e => {
+  if (!window.matchMedia('(max-width: 800px)').matches) return;
+  if (e.target !== sidebarEl && e.target !== document.getElementById('library-tree')) return;
+  closeFeedSidebar();
+});
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { closeModal('add-feed-modal-backdrop'); closeModal('library-modal-backdrop'); closeLibraryMenu(); closeConfirmModal(); closeFeedPicker(); closeAuthModal(); closeFeedSidebar(); }
   if (e.key !== 'Tab') return;
