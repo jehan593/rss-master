@@ -92,7 +92,9 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .current-feed-title { color: var(--text); font-size: 16px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
 .articles-toolbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .unread-count { font-size: 11px; }
-.last-synced { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text2); }
+.last-synced { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; padding: 2px 8px; font-size: 10px; line-height: 1.4; color: var(--text2); background: var(--bg3); border: 1px solid var(--border); border-radius: 999px; }
+.last-synced:empty { display: none; }
+.last-synced:empty + .unread-count { margin-left: auto; }
 #feed-sidebar-backdrop { display: none; }
 #feed-sidebar-backdrop.open { display: block; }
 .feed-sidebar-catcher { position: fixed; inset: 0; z-index: 250; }
