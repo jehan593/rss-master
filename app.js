@@ -100,15 +100,20 @@ function syncDotInfo(feedId) {
   showToast(`${feedTitle(feedId)}: ${syncStatusText(feedId)}`);
 }
 
-// "Last sync X ago" under the feed title, refreshed every 30s. Uses the most
-// recent last_fetched_at from feeds whose last attempt succeeded — the edge
-// function stamps last_fetched_at on failures too, so using it directly would
-// show "just now" even when a feed failed to sync.
+// "Last sync X ago" under the feed title, refreshed every 30s. Only shown when
+// a specific feed is selected: its time of last successful sync. For folders
+// and All feeds, the line stays empty (space reserved) to keep the layout
+// steady. Uses error_count as the success signal — the edge function stamps
+// last_fetched_at on failures too, so the raw timestamp alone would read "just
+// now" even when the sync failed.
 function updateSyncStatus() {
-  const last = feeds.reduce((t, f) =>
-    (f.last_fetched_at && f.error_count === 0 && (!t || f.last_fetched_at > t) ? f.last_fetched_at : t), null);
-  const label = last ? 'Last sync ' + timeAgo(last) : '';
-  document.querySelectorAll('.last-synced').forEach(el => { el.textContent = label; el.title = label; });
+  let label = '';
+  if (activeFilter !== 'all' && !activeFilter.startsWith('folder:')) {
+    const feed = feeds.find(f => f.id === activeFilter);
+    if (feed && feed.last_fetched_at && feed.error_count === 0)
+      label = 'Last sync ' + timeAgo(feed.last_fetched_at);
+  }
+  document.querySelectorAll('.last-synced').forEach(el => { el.textContent = label || '\u00a0'; el.title = label; });
   const btn = document.getElementById('refresh-btn');
   if (btn) btn.title = label || 'Refresh';
 }

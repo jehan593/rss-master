@@ -70,6 +70,7 @@ async function loadFolders() {
 }
 function renderLibrary() {
   loadFolderExpansionState();
+  updateSyncStatus();
   const tree = document.getElementById('library-tree');
   if (!tree) return;
   const query = document.getElementById('library-search').value.trim().toLowerCase();
