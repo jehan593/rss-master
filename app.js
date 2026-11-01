@@ -86,6 +86,31 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+// Per-feed sync status: shown on the sidebar error dot and its tooltip/toast.
+function syncStatusText(feedId) {
+  const feed = feeds.find(f => f.id === feedId);
+  if (!feed || !feed.last_fetched_at) return 'Sync status unknown';
+  const parts = [`Last sync attempt ${timeAgo(feed.last_fetched_at)}`];
+  if (feed.error_count > 0) parts.push(`${feed.error_count} failed attempt${feed.error_count === 1 ? '' : 's'}`);
+  if (feed.active === false) parts.push('feed disabled after repeated failures');
+  else if (feed.error_count > 0) parts.push('will retry on next refresh');
+  return parts.join(' — ');
+}
+function syncDotInfo(feedId) {
+  showToast(`${feedTitle(feedId)}: ${syncStatusText(feedId)}`);
+}
+
+// "Last sync X ago" in the toolbar, refreshed every 30s. Shows the most recent
+// sync attempt across all feeds (updates.fail also stamps last_fetched_at).
+function updateSyncStatus() {
+  const last = feeds.reduce((t, f) => (f.last_fetched_at && (!t || f.last_fetched_at > t) ? f.last_fetched_at : t), null);
+  const label = last ? 'Last sync ' + timeAgo(last) : '';
+  const el = document.getElementById('last-synced');
+  if (el) el.textContent = label;
+  const btn = document.getElementById('refresh-btn');
+  if (btn) btn.title = label || 'Refresh';
+}
+
 const FEED_HUES = [195, 225, 255, 285, 315, 345, 15, 45, 75, 105, 135, 165];
 
 function feedHsl(feedId) {
@@ -545,6 +570,7 @@ async function loadFeeds() {
   dropOrphanedArticles();
   saveCache();
   renderFeedSidebar();
+  updateSyncStatus();
 }
 
 async function loadArticles() {
@@ -909,8 +935,10 @@ document.addEventListener('keydown', e => {
 
 loadCache();
 renderFeedSidebar();
+updateSyncStatus();
 renderArticles();
 initAuth();
+setInterval(updateSyncStatus, 30000);
 
 // Keep the article controls directly below the header at any screen/font size.
 const pageHeader = document.querySelector('header');

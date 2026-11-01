@@ -92,6 +92,7 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .current-feed-title { color: var(--text); font-size: 16px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
 .articles-toolbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .unread-count { font-size: 11px; }
+.last-synced { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text2); }
 #feed-sidebar-backdrop { display: none; }
 #feed-sidebar-backdrop.open { display: block; }
 .feed-sidebar-catcher { position: fixed; inset: 0; z-index: 250; }
@@ -113,6 +114,12 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .feed-sidebar-item.has-unread .fs-count { color: var(--accent); font-size: 12px; font-weight: 900; }
 .feed-sidebar-item.has-unread .feed-color-dot { width: 9px; height: 9px; }
 .feed-color-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+
+:root { --warn: #ebcb8b; }
+
+.library-select .fs-error { width: 7px; height: 7px; margin-left: 4px; flex-shrink: 0; border-radius: 50%; background: var(--warn); cursor: pointer; }
+.library-select .fs-error.dead { background: var(--bad); }
+.fs-name.dead { text-decoration: line-through; opacity: .6; }
 
 .article-item { padding: 12px; margin-bottom: 12px; background: var(--bg2); border-radius: var(--radius); transition: background-color 160ms, transform 160ms, box-shadow 160ms; }
 .article-item:hover { background: rgba(67, 76, 94, 0.75); transform: translateY(-1px); box-shadow: 0 4px 14px #0002; }
