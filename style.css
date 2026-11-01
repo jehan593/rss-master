@@ -208,7 +208,8 @@ input:focus { border-color: var(--accent); }
   .feed-switcher-bar { max-width: 100%; }
   .articles-toolbar { width: 100%; justify-content: space-between; }
   .articles-toolbar .last-synced { display: none; }
-  .last-synced-mobile:not(:empty) { display: inline-block; max-width: 100%; }
+  /* Plain text on mobile so the first character aligns with the feed title. */
+  .last-synced-mobile:not(:empty) { display: inline-block; max-width: 100%; padding: 0; background: transparent; border: 0; border-radius: 0; }
   .feed-sidebar-search, .form-group input, .rename-row input { font-size: 16px; }
   .feed-search-wrap > svg { top: 18px; }
   .search-clear { top: 6px; }
