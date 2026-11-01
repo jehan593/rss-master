@@ -106,7 +106,7 @@ function updateSyncStatus() {
   const last = feeds.reduce((t, f) => (f.last_fetched_at && (!t || f.last_fetched_at > t) ? f.last_fetched_at : t), null);
   const label = last ? 'Last sync ' + timeAgo(last) : '';
   const el = document.getElementById('last-synced');
-  if (el) el.textContent = label;
+  if (el) { el.textContent = label; el.title = label; }
   const btn = document.getElementById('refresh-btn');
   if (btn) btn.title = label || 'Refresh';
 }
