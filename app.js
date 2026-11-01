@@ -100,10 +100,13 @@ function syncDotInfo(feedId) {
   showToast(`${feedTitle(feedId)}: ${syncStatusText(feedId)}`);
 }
 
-// "Last sync X ago" under the feed title, refreshed every 30s. Shows the most
-// recent sync attempt across all feeds (updates.fail also stamps last_fetched_at).
+// "Last sync X ago" under the feed title, refreshed every 30s. Uses the most
+// recent last_fetched_at from feeds whose last attempt succeeded — the edge
+// function stamps last_fetched_at on failures too, so using it directly would
+// show "just now" even when a feed failed to sync.
 function updateSyncStatus() {
-  const last = feeds.reduce((t, f) => (f.last_fetched_at && (!t || f.last_fetched_at > t) ? f.last_fetched_at : t), null);
+  const last = feeds.reduce((t, f) =>
+    (f.last_fetched_at && f.error_count === 0 && (!t || f.last_fetched_at > t) ? f.last_fetched_at : t), null);
   const label = last ? 'Last sync ' + timeAgo(last) : '';
   document.querySelectorAll('.last-synced').forEach(el => { el.textContent = label; el.title = label; });
   const btn = document.getElementById('refresh-btn');
