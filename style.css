@@ -117,8 +117,9 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 
 :root { --warn: #ebcb8b; }
 
-.library-select .fs-error { width: 7px; height: 7px; margin-left: 4px; flex-shrink: 0; border-radius: 50%; background: var(--warn); cursor: pointer; }
-.library-select .fs-error.dead { background: var(--bad); }
+.library-select .fs-error { min-width: 24px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; }
+.library-select .fs-error::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.library-select .fs-error.dead::before { background: var(--bad); }
 .fs-name.dead { text-decoration: line-through; opacity: .6; }
 
 .article-item { padding: 12px; margin-bottom: 12px; background: var(--bg2); border-radius: var(--radius); transition: background-color 160ms, transform 160ms, box-shadow 160ms; }
