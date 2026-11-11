@@ -113,7 +113,7 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 /* Align the All feeds count with row counts: rows pad 28px for the hover ⋮ zone
    (desktop) and, on mobile, 32px drag-handle + 32px ⋮ on top of that; plus the
    4px internal right padding of .fs-count that both sides share. */
-.feed-sidebar-item .fs-count { padding-right: 56px; }
+.feed-sidebar-item .fs-count { padding-right: 68px; }
 .feed-sidebar-item.has-unread .fs-name { color: var(--text); font-weight: 900; }
 .feed-sidebar-item.has-unread .fs-count { color: var(--accent); font-size: 12px; font-weight: 900; }
 .feed-sidebar-item.has-unread .feed-color-dot { width: 9px; height: 9px; }
@@ -283,7 +283,7 @@ select { width: 100%; min-height: 44px; padding: 8px; color: var(--text); backgr
   .library-select { padding-right: 28px; }
   .library-more { position: absolute; right: 0; opacity: 0; }
   .library-row:hover .library-more, .library-row:focus-within .library-more { opacity: 1; }
-  .feed-sidebar-item .fs-count { padding-right: 20px; }
+  .feed-sidebar-item .fs-count { padding-right: 28px; }
 }
 @media (max-width: 800px) {
   .logo { gap: 4px; }
