@@ -91,7 +91,7 @@ function renderLibrary() {
       <button class="library-drag-handle" aria-label="Drag ${escAttr(title)}" title="Drag to move">⠿</button><button class="library-more" aria-label="Options for ${escAttr(title)}" onclick="openLibraryMenu(event,'${item.kind}','${item.id}')">⋮</button></div>` +
       (folder && (!collapsedFolders.has(item.id) || query) ? `<div class="library-children" data-parent="${item.id}">${branch(item.id, depth + 1)}</div>` : '');
   }).join('');
-  tree.innerHTML = `<button class="feed-sidebar-item ${activeFilter === 'all' ? 'active' : ''}" aria-pressed="${activeFilter === 'all'}" onclick="setFilter('all')">All feeds <span class="fs-count">${count(null)}</span></button><div class="library-root-drop" data-root="true">Feeds <span class="root-drop-hint">Move here for no folder</span></div>` + branch(null) + (!feeds.length && !folders.length ? '<p class="library-hint">Add a feed or create a folder above.</p>' : '');
+  tree.innerHTML = `<button class="feed-sidebar-item ${activeFilter === 'all' ? 'active' : ''}" aria-pressed="${activeFilter === 'all'}" onclick="setFilter('all')"><span class="fs-name">All feeds</span> <span class="fs-count">${count(null)}</span></button><div class="library-root-drop" data-root="true">Feeds <span class="root-drop-hint">Move here for no folder</span></div>` + branch(null) + (!feeds.length && !folders.length ? '<p class="library-hint">Add a feed or create a folder above.</p>' : '');
   tree.querySelectorAll('.library-row').forEach(row => {
     row.oncontextmenu = e => openLibraryMenu(e, row.dataset.kind, row.dataset.id);
     row.ondragstart = e => { libraryDrag = { kind: row.dataset.kind, id: row.dataset.id }; e.dataTransfer.setData('text/plain', row.dataset.id); e.dataTransfer.effectAllowed = 'move'; };
