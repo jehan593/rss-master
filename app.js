@@ -429,29 +429,38 @@ async function importOpml(event) {
   showToast(`Imported ${added.length} feed${added.length === 1 ? '' : 's'}${skipped ? ` (${skipped} already added)` : ''}`);
 }
 
+function normalizeFeedUrl(value) {
+  const url = value.trim();
+  if (!url || /^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url;
+  return 'https://' + url;
+}
+
 async function addFeed() {
   if (!sb || !session) { showToast('Sign in first'); openAuthModal(); return; }
-  const url = document.getElementById('new-feed-url').value.trim();
+  const url = normalizeFeedUrl(document.getElementById('new-feed-url').value);
   if (!url) { showToast('Enter a feed or website URL'); return; }
-  if (!/^https?:\/\//i.test(url)) { showToast('URL must start with http:// or https://'); return; }
 
   const addBtn = document.getElementById('add-feed-btn');
   if (addBtn) { addBtn.disabled = true; addBtn.textContent = 'Finding feed…'; }
   try {
-    const { data: discovered, error: discoverErr } = await sb.functions.invoke('fetch-feeds', { body: { discover: url } });
-    if (discoverErr) throw discoverErr;
+    let discovered;
+    try {
+      const { data, error: discoverErr } = await sb.functions.invoke('fetch-feeds', { body: { discover: url } });
+      if (discoverErr) throw discoverErr;
+      discovered = data;
+    } catch (e) {
+      console.error('feed discovery failed', e);
+      showToast("Couldn't find a valid feed at that URL");
+      return;
+    }
 
     if (discovered?.feedUrl) {
       await insertFeed(discovered.feedUrl);
     } else if (discovered?.candidates?.length) {
       openFeedPicker(discovered.candidates);
     } else {
-      showToast("Couldn't find a feed at that URL");
+      showToast("Couldn't find a valid feed at that URL");
     }
-  } catch (e) {
-    console.error('feed discovery failed', e);
-    // A direct feed URL may still work when discovery fails.
-    await insertFeed(url);
   } finally {
     if (addBtn) { addBtn.disabled = false; addBtn.textContent = 'Add feed'; }
   }

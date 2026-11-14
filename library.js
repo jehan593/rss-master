@@ -163,9 +163,9 @@ function folderPath(id) {
 async function saveLibraryItem() {
   if (libraryBusy) return;
   const name = document.getElementById('library-name').value.trim();
-  const url = document.getElementById('library-url').value.trim();
+  const url = normalizeFeedUrl(document.getElementById('library-url').value);
   if (!name) { document.getElementById('library-error').textContent = 'Enter a name.'; return; }
-  if (libraryEditing.kind === 'feed' && !/^https?:\/\//i.test(url)) { document.getElementById('library-error').textContent = 'Enter a feed URL starting with https:// or http://.'; return; }
+  if (libraryEditing.kind === 'feed' && !/^https?:\/\//i.test(url)) { document.getElementById('library-error').textContent = 'Enter a valid feed URL.'; return; }
   libraryBusy = true;
   document.getElementById('library-save').disabled = true;
   try {
