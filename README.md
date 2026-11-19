@@ -1,6 +1,6 @@
 # RSS Master
 
-> FYI: This project is fully vibe coded.
+> **FYI:** This project is fully vibe coded for my personal use and taste. It's shared publicly in case it's useful to you. Feel free to fork it and adapt it to your needs.
 
 **[Live demo](https://jehan593.github.io/rss-master/)**
 
@@ -13,16 +13,16 @@ accounts, storage, and feed fetching. No build step required.
 - Add a feed URL or paste a website address to find its feeds
 - Refresh feeds on app load or with **Refresh**
 - Expand articles inline, mark all visible articles read, or mark individual
-  articles unread — read status syncs across devices through your account
+  articles unread ΓÇö read status syncs across devices through your account
 - Load more articles from all feeds or a single feed
 - Search, rename, and reorder feeds
 - Import and export feed lists as **OPML**
-- Daily article cleanup and storage caps — see [Storage design](#storage-design)
+- Daily article cleanup and storage caps ΓÇö see [Storage design](#storage-design)
 - Responsive Nord dark theme with Martian Mono, keyboard controls, and labelled dialogs
 
 ## Tech stack
 
-- Vanilla JavaScript, HTML, and CSS — no build tooling or framework
+- Vanilla JavaScript, HTML, and CSS ΓÇö no build tooling or framework
 - [Supabase](https://supabase.com) for email sign-in, Postgres storage, and a Deno function that fetches feeds
 - `pg_cron` for daily storage cleanup
 - Self-hosted Martian Mono webfont
@@ -57,7 +57,7 @@ supabase functions deploy fetch-feeds
 ```
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically into
-every Edge Function by Supabase — no manual secrets needed.
+every Edge Function by Supabase ΓÇö no manual secrets needed.
 
 ### 4. Configure the frontend
 
@@ -65,7 +65,7 @@ In `app.js`, set:
 
 ```js
 const SUPABASE_URL = 'https://<PROJECT-REF>.supabase.co';
-const SUPABASE_ANON_KEY = '<your anon/public key>'; // Project Settings → API
+const SUPABASE_ANON_KEY = '<your anon/public key>'; // Project Settings ΓåÆ API
 ```
 
 ### 5. Run locally or deploy
@@ -77,8 +77,8 @@ npx serve .
 # or: python -m http.server 5757
 ```
 
-Or deploy to GitHub Pages (Settings → Pages → deploy from branch). Whichever
-origin you deploy to, add it under **Authentication → URL Configuration →
+Or deploy to GitHub Pages (Settings ΓåÆ Pages ΓåÆ deploy from branch). Whichever
+origin you deploy to, add it under **Authentication ΓåÆ URL Configuration ΓåÆ
 Redirect URLs** in the Supabase dashboard so email sign-in can return to your app.
 Opening `index.html` directly from disk also works, except sign-in and feed
 fetching (browsers block `fetch`/auth from `file://` origins).
@@ -138,7 +138,7 @@ user; all test changes roll back.
 The app uses article caps and retention windows to keep database storage
 small. Cleanup runs daily at 03:30 UTC through `pg_cron`:
 
-- **Only metadata is stored** — title, link, published date, and a summary
+- **Only metadata is stored** ΓÇö title, link, published date, and a summary
   truncated to 500 characters. Full article HTML/content is never stored;
   articles link out to the original source.
 - **Total article cap (primary bound)**: a daily `pg_cron` job
@@ -165,8 +165,8 @@ small. Cleanup runs daily at 03:30 UTC through `pg_cron`:
   `supabase/migrations/` in filename order, then deploy `fetch-feeds`.
   The full schema is for fresh installations.
 - **Deduplication**: incoming articles are resolved by `(feed_id, link)` OR
-  `(feed_id, guid)` first — repairing whichever field drifted on a match
-  instead of inserting — then upserted on `(feed_id, guid)` for anything new,
+  `(feed_id, guid)` first ΓÇö repairing whichever field drifted on a match
+  instead of inserting ΓÇö then upserted on `(feed_id, guid)` for anything new,
   to avoid duplicates when either identity changes. Stored marker links
   also let the fetcher migrate read status when a feed changes an article's
   GUID but keeps its link.
@@ -187,14 +187,14 @@ The sidebar replaces the old feed picker and top tabs. Its icon buttons open
 small dialogs to add a feed or create a folder. Choose a folder when adding;
 new items appear at the end. Folders can contain feeds and other folders;
 selecting a folder shows articles from its feeds and subfolders. Right-click an item
-or use its ⋮ button to rename, edit a feed URL, move, reorder, or delete it.
+or use its Γï« button to rename, edit a feed URL, move, reorder, or delete it.
 Deleting a folder keeps its contents and moves them to its parent.
 
 Drag items onto the middle of a folder to move inside it. Drop near the top or
 bottom of a row to place an item before or after it. Drop on the Feeds heading
 to move it out of all folders. A line shows where the item will go.
-On mobile, open the drawer with the menu button and drag using the ⠿ handle.
-The item menu also has a separate “Move to folder” action without dragging.
+On mobile, open the drawer with the menu button and drag using the Γá┐ handle.
+The item menu also has a separate ΓÇ£Move to folderΓÇ¥ action without dragging.
 Settings is at the bottom of the sidebar and includes import/export.
 Expanded and collapsed folders are remembered for each account in this browser.
 
