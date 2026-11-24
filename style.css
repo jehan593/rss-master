@@ -87,7 +87,7 @@ header { position: sticky; top: 0; z-index: 100; padding: 16px 16px 0; backgroun
 main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .section { display: none; }
 .section.active { display: block; animation: section-in 220ms ease-out both; }
-.articles-header { position: sticky; top: var(--header-height); z-index: 90; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -16px 0 0; padding: 16px 0; background: var(--bg); }
+.articles-header { position: sticky; top: var(--header-height); z-index: 90; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: -16px 0 0; padding: 16px 0; background: var(--bg); }
 .feed-switcher-bar { position: relative; min-width: 0; }
 .current-feed-title { color: var(--text); font-size: 16px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
 .articles-toolbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
@@ -155,7 +155,7 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .empty-state p { color: var(--text); font-size: 14px; font-weight: 500; }
 .empty-state small { display: block; max-width: 360px; margin: 8px auto 0; font-size: 12px; }
 
-.article-search-wrap { position: relative; margin: 0 0 16px; }
+.article-search-wrap { position: relative; width: 100%; flex-shrink: 0; margin: 0; }
 .article-search-wrap > svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--accent); pointer-events: none; }
 .article-search-input { width: 100%; min-height: 40px; padding: 8px 42px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); color: var(--text); font: inherit; }
 .article-search-input:focus { border-color: var(--accent); }

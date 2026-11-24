@@ -7,7 +7,7 @@
 <title>rss-master</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
 <meta name="theme-color" content="#2e3440">
-<link rel="stylesheet" href="style.css?v=20261124b">
+<link rel="stylesheet" href="style.css?v=20261125a">
 </head>
 <body>
 
@@ -60,12 +60,12 @@
         <span class="unread-count" id="unread-count"></span>
         <button class="btn btn-sm btn-ghost" onclick="markAllRead()">Mark all read</button>
       </div>
-    </div>
 
-    <div class="article-search-wrap">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-      <input class="article-search-input" id="article-search" type="text" inputmode="search" placeholder="Search article titles…" aria-label="Search article titles in the selected feed" oninput="renderArticles()" autocomplete="off" spellcheck="false">
-      <button type="button" class="search-clear" id="article-search-clear" aria-label="Clear article search" title="Clear search" onclick="clearArticleSearch()" hidden>×</button>
+      <div class="article-search-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <input class="article-search-input" id="article-search" type="text" inputmode="search" placeholder="Search article titles…" aria-label="Search article titles in the selected feed" oninput="renderArticles()" autocomplete="off" spellcheck="false">
+        <button type="button" class="search-clear" id="article-search-clear" aria-label="Clear article search" title="Clear search" onclick="clearArticleSearch()" hidden>×</button>
+      </div>
     </div>
 
     <div id="articles-list"></div>
