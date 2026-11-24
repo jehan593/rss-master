@@ -73,7 +73,10 @@ function renderLibrary() {
   updateSyncStatus();
   const tree = document.getElementById('library-tree');
   if (!tree) return;
-  const query = document.getElementById('library-search').value.trim().toLowerCase();
+  const searchInput = document.getElementById('library-search');
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  const clearBtn = document.getElementById('library-search-clear');
+  if (clearBtn) clearBtn.hidden = !query;
   const count = ids => articles.filter(a => (!ids || ids.includes(a.feed_id)) && !readIds.has(a.id)).length;
   const label = activeFilter.startsWith('folder:') ? folders.find(f => 'folder:' + f.id === activeFilter)?.name : activeFilter === 'all' ? 'All feeds' : feedTitle(activeFilter);
   document.getElementById('current-feed-label').textContent = label || 'All feeds';
@@ -87,7 +90,7 @@ function renderLibrary() {
     const failing = !folder && (item.active === false || item.error_count > 0);
     return `<div class="library-row ${activeFilter === filter ? 'active' : ''}" data-kind="${item.kind}" data-id="${item.id}" draggable="true" style="--depth:${depth}">
       ${folder ? `<button class="folder-toggle" title="${collapsedFolders.has(item.id) ? 'Expand' : 'Collapse'} folder" aria-label="${collapsedFolders.has(item.id) ? 'Expand' : 'Collapse'} ${escAttr(title)}" aria-expanded="${!collapsedFolders.has(item.id)}" onclick="toggleLibraryFolder('${item.id}')">${collapsedFolders.has(item.id) ? '▸' : '▾'}</button>` : ''}
-      <button class="library-select" title="${escAttr(title)}" aria-pressed="${activeFilter === filter}" onclick="setFilter('${filter}')"><span class="library-item-icon" ${folder ? '' : `style="color:${feedColor(item.id)}"`} aria-hidden="true">${libraryIcon(folder ? 'folder' : 'feed')}</span><span class="fs-name${item.active === false ? ' dead' : ''}">${escHtml(title)}</span>${failing ? `<span class="fs-error${item.active === false ? ' dead' : ''}" role="button" tabindex="0" aria-label="Sync status for ${escAttr(title)}" title="${escAttr(syncStatusText(item.id))}" onclick="event.stopPropagation();syncDotInfo('${item.id}')" onkeydown="if(event.key==='Enter'){event.stopPropagation();this.click()}"></span>` : ''}<span class="fs-count">${unread || ''}</span></button>
+      <button class="library-select" title="${escAttr(title)}" aria-pressed="${activeFilter === filter}" onclick="setFilter('${filter}')"><span class="library-item-icon" ${folder ? '' : `style="color:${feedColor(item.id)}"`} aria-hidden="true">${libraryIcon(folder ? 'folder' : 'feed')}</span><span class="fs-name${item.active === false ? ' dead' : ''}">${highlightMatch(title, query)}</span>${failing ? `<span class="fs-error${item.active === false ? ' dead' : ''}" role="button" tabindex="0" aria-label="Sync status for ${escAttr(title)}" title="${escAttr(syncStatusText(item.id))}" onclick="event.stopPropagation();syncDotInfo('${item.id}')" onkeydown="if(event.key==='Enter'){event.stopPropagation();this.click()}"></span>` : ''}<span class="fs-count">${unread || ''}</span></button>
       <button class="library-drag-handle" aria-label="Drag ${escAttr(title)}" title="Drag to move">⠿</button><button class="library-more" aria-label="Options for ${escAttr(title)}" onclick="openLibraryMenu(event,'${item.kind}','${item.id}')">⋮</button></div>` +
       (folder && (!collapsedFolders.has(item.id) || query) ? `<div class="library-children" data-parent="${item.id}">${branch(item.id, depth + 1)}</div>` : '');
   }).join('');
@@ -118,6 +121,13 @@ function renderLibrary() {
     };
     handle.onpointercancel = () => { libraryDrag = null; row.classList.remove('dragging'); clearLibraryDrop(); };
   });
+}
+function clearLibrarySearch() {
+  const input = document.getElementById('library-search');
+  if (!input) return;
+  input.value = '';
+  renderFeedSidebar();
+  input.focus();
 }
 function libraryIcon(kind) {
   const path = kind === 'folder' ? '<path d="M3 7V5h6l2 2h10v12H3z"/>' : '<circle cx="5" cy="19" r="1"/><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/>';

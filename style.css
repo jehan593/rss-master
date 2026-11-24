@@ -101,8 +101,15 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .feed-search-wrap { position: relative; margin-bottom: 12px; }
 .feed-search-wrap > svg { position: absolute; left: 12px; top: 14px; width: 16px; height: 16px; color: var(--accent); pointer-events: none; }
 .feed-sidebar-search { width: 100%; padding: 10px 44px 10px 36px; border: 1px solid var(--border); background: transparent; color: var(--text); }
-.search-clear { position: absolute; right: 2px; top: 2px; }
+.search-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--accent); font-size: 16px; line-height: 1;
+}
+.search-clear:hover { background: var(--bg3); color: var(--text); }
 .search-clear[hidden] { display: none; }
+.search-highlight { background: #ffe066; color: #2e3440; padding: 0 1px; border-radius: 2px; font-weight: 700; }
 #feed-sidebar-list { max-height: min(360px, 50vh); overflow-y: auto; overscroll-behavior-y: contain; }
 .feed-sidebar-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px; margin-bottom: 4px; border: 0; background: transparent; color: var(--text2); text-align: left; }
 .feed-sidebar-item:hover, .feed-sidebar-item:focus-visible { background: var(--bg3); }
@@ -147,6 +154,12 @@ main { max-width: var(--max-w); margin: 0 auto; padding: 16px; }
 .empty-state { padding: 48px 16px; text-align: center; }
 .empty-state p { color: var(--text); font-size: 14px; font-weight: 500; }
 .empty-state small { display: block; max-width: 360px; margin: 8px auto 0; font-size: 12px; }
+
+.article-search-wrap { position: relative; margin: 0 0 16px; }
+.article-search-wrap > svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--accent); pointer-events: none; }
+.article-search-input { width: 100%; min-height: 40px; padding: 8px 42px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); color: var(--text); font: inherit; }
+.article-search-input:focus { border-color: var(--accent); }
+.article-search-input::placeholder { color: var(--text2); opacity: 0.65; }
 
 .manage-header { margin-bottom: 16px; }
 .manage-header h2 { font-size: 16px; font-weight: 500; color: var(--text); }
@@ -236,7 +249,7 @@ main { max-width: 1160px; padding-left: 296px; }
 .sidebar-heading { margin-bottom: 6px; }
 #navigation-sidebar .icon-btn { width: 32px; min-height: 32px; padding: 6px; }
 #navigation-sidebar .feed-search-wrap { margin-bottom: 6px; }
-#navigation-sidebar .feed-sidebar-search { padding: 6px 8px; min-height: 32px; }
+#navigation-sidebar .feed-sidebar-search { padding: 6px 34px 6px 8px; min-height: 32px; }
 #navigation-sidebar .feed-sidebar-item { min-height: 30px; padding: 5px 8px; margin-bottom: 2px; }
 #library-tree { overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; }
 .library-row { display: flex; align-items: center; min-height: 28px; padding-left: 4px; border-radius: 6px; }
@@ -304,4 +317,11 @@ select { width: 100%; min-height: 44px; padding: 8px; color: var(--text); backgr
   .folder-toggle { width: 28px; min-width: 28px; }
   .folder-toggle { height: 28px; min-height: 28px; }
   select { font-size: 16px; }
+  #navigation-sidebar .feed-sidebar-search { font-size: 16px; padding-right: 42px; }
+  .search-clear { width: 32px; height: 32px; right: 4px; }
+}
+
+@media (max-width: 600px) {
+  .article-search-input { min-height: 44px; font-size: 16px; }
+  .article-search-wrap > svg { width: 18px; height: 18px; }
 }

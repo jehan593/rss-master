@@ -7,7 +7,7 @@
 <title>rss-master</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
 <meta name="theme-color" content="#2e3440">
-<link rel="stylesheet" href="style.css?v=20261020l">
+<link rel="stylesheet" href="style.css?v=20261124a">
 </head>
 <body>
 
@@ -41,7 +41,10 @@
       <button class="btn icon-btn" onclick="editLibraryItem('folder')" title="Create folder" aria-label="Create folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5h6l2 2h10v12H3zM12 10v6M9 13h6"/></svg></button>
       <button class="btn icon-btn mobile-sidebar-close" id="sidebar-close-btn" onclick="closeFeedSidebar()" aria-label="Close sidebar">×</button>
     </div></div>
-    <div class="feed-search-wrap"><input class="feed-sidebar-search" id="library-search" placeholder="Search library…" aria-label="Search feeds and folders" oninput="renderFeedSidebar()"></div>
+    <div class="feed-search-wrap">
+      <input class="feed-sidebar-search" id="library-search" placeholder="Search library…" aria-label="Search feeds and folders" oninput="renderFeedSidebar()" autocomplete="off">
+      <button type="button" class="search-clear" id="library-search-clear" aria-label="Clear library search" title="Clear search" onclick="clearLibrarySearch()" hidden>×</button>
+    </div>
     <div id="library-tree"></div>
     <div class="sidebar-footer"><button class="btn" onclick="showLibrarySection('settings')">⚙ Settings</button></div>
   </aside>
@@ -57,6 +60,12 @@
         <span class="unread-count" id="unread-count"></span>
         <button class="btn btn-sm btn-ghost" onclick="markAllRead()">Mark all read</button>
       </div>
+    </div>
+
+    <div class="article-search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <input class="article-search-input" id="article-search" type="text" inputmode="search" placeholder="Search article titles…" aria-label="Search article titles in the selected feed" oninput="renderArticles()" autocomplete="off" spellcheck="false">
+      <button type="button" class="search-clear" id="article-search-clear" aria-label="Clear article search" title="Clear search" onclick="clearArticleSearch()" hidden>×</button>
     </div>
 
     <div id="articles-list"></div>
@@ -173,7 +182,7 @@
   </form>
 </div>
 
-<script src="library.js?v=20261012i"></script>
-<script src="app.js?v=20261020h"></script>
+<script src="library.js?v=20261124a"></script>
+<script src="app.js?v=20261124a"></script>
 </body>
 </html>

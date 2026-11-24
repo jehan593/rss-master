@@ -180,9 +180,26 @@ function getVisibleArticles() {
     .sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
 }
 
+function getArticleSearchQuery() {
+  const input = document.getElementById('article-search');
+  return input ? input.value.trim() : '';
+}
+
+function clearArticleSearch() {
+  const input = document.getElementById('article-search');
+  if (!input) return;
+  input.value = '';
+  renderArticles();
+  input.focus();
+}
+
 function renderArticles() {
   const list = document.getElementById('articles-list');
-  const visible = getVisibleArticles();
+  const query = getArticleSearchQuery().toLowerCase();
+  const clearBtn = document.getElementById('article-search-clear');
+  if (clearBtn) clearBtn.hidden = !query;
+  // The search is scoped to the currently selected feed/folder (or All feeds).
+  const visible = getVisibleArticles().filter(a => !query || (a.title || '').toLowerCase().includes(query));
 
   const unread = visible.filter(a => !readIds.has(a.id)).length;
   document.getElementById('unread-count').textContent =
@@ -197,7 +214,9 @@ function renderArticles() {
     return;
   }
   if (!visible.length) {
-    list.innerHTML = `<div class="empty-state"><p>No articles yet</p><small>Refresh or check back later.</small></div>`;
+    list.innerHTML = query
+      ? `<div class="empty-state"><p>No matching articles</p><small>Try a different search term.</small></div>`
+      : `<div class="empty-state"><p>No articles yet</p><small>Refresh or check back later.</small></div>`;
     return;
   }
 
@@ -224,7 +243,7 @@ function renderArticleCard(a) {
   const isExpanded = expandedArticleId === a.id;
   const animateIn = isExpanded && animateExpandId === a.id;
 
-  const title = `<span class="article-title">${escHtml(a.title)}</span>`;
+  const title = `<span class="article-title">${highlightMatch(a.title, getArticleSearchQuery())}</span>`;
 
   const markUnreadBtn = isRead
     ? `<button class="btn btn-sm btn-ghost" onclick="markUnread('${a.id}')">Mark unread</button>`
@@ -891,6 +910,26 @@ function escHtml(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 function escAttr(s) { return escHtml(s); }
+
+// Escapes each piece separately so the query can never inject markup, and
+// supports repeated matches without needing a regex-escaped search term.
+function highlightMatch(text, query) {
+  const value = text || '';
+  const q = (query || '').trim();
+  if (!q) return escHtml(value);
+  const haystack = value.toLowerCase();
+  const needle = q.toLowerCase();
+  let result = '';
+  let pos = 0;
+  let idx = haystack.indexOf(needle, pos);
+  while (idx !== -1) {
+    result += escHtml(value.slice(pos, idx));
+    result += `<mark class="search-highlight">${escHtml(value.slice(idx, idx + q.length))}</mark>`;
+    pos = idx + q.length;
+    idx = haystack.indexOf(needle, pos);
+  }
+  return result + escHtml(value.slice(pos));
+}
 
 function safeArticleUrl(value) {
   try {
