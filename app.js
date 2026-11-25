@@ -1019,8 +1019,28 @@ function updateBackToTop() {
   backToTopBtn.hidden = !show;
   document.body.classList.toggle('show-back-to-top', show);
 }
+let backToTopFrame = null;
+function cancelBackToTop() {
+  if (backToTopFrame) cancelAnimationFrame(backToTopFrame);
+  backToTopFrame = null;
+}
+// Animated in JS so it scrolls smoothly even when the browser/OS would
+// otherwise jump instantly (e.g. reduced-motion settings).
 function scrollToTop() {
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const start = window.scrollY;
+  if (start <= 0) return;
+  cancelBackToTop();
+  const duration = 450;
+  const startedAt = performance.now();
+  const step = now => {
+    const progress = Math.min((now - startedAt) / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    window.scrollTo(0, Math.round(start * (1 - eased)));
+    if (progress < 1) backToTopFrame = requestAnimationFrame(step);
+    else backToTopFrame = null;
+  };
+  backToTopFrame = requestAnimationFrame(step);
 }
 window.addEventListener('scroll', updateBackToTop, { passive: true });
+['wheel', 'touchstart', 'keydown'].forEach(type => window.addEventListener(type, cancelBackToTop, { passive: true }));
 updateBackToTop();
