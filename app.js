@@ -252,7 +252,7 @@ function renderArticleCard(a) {
   const expandedExtra = isExpanded ? `
     <div class="article-content">${formatContentHtml(a.summary || 'No summary available.')}</div>
     <div class="article-expanded-actions">
-      <a class="btn btn-sm" href="${escAttr(safeArticleUrl(a.link))}" target="_blank" rel="noopener noreferrer" onclick="openArticleOriginal(event,'${a.id}')">Open original ↗</a>
+      <a class="btn btn-sm" href="${escAttr(safeArticleUrl(a.link))}" target="_blank" rel="noopener noreferrer" onclick="if (!readIds.has('${a.id}')) markRead('${a.id}')">Open original ↗</a>
       ${markUnreadBtn}
       <button class="btn btn-sm btn-ghost" onclick="toggleExpand('${a.id}')">Collapse</button>
     </div>` : '';
@@ -269,30 +269,6 @@ function renderArticleCard(a) {
 
 function formatContentHtml(text) {
   return text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean).map(p => `<p>${escHtml(p)}</p>`).join('');
-}
-
-// Simulate a modified click (Ctrl on Windows/Linux, Cmd on macOS), which opens
-// the link in a background tab, then pull focus back to the reader. Mobile
-// browsers control tab focus themselves, so window.focus() is best-effort there.
-function openArticleOriginal(event, articleId) {
-  if (event) event.preventDefault();
-  const a = articles.find(x => x.id === articleId);
-  const url = a ? safeArticleUrl(a.link) : '#';
-  if (!readIds.has(articleId)) markRead(articleId);
-  if (url === '#') return;
-
-  const isMac = /Mac|iP(hone|od|ad)/i.test(navigator.platform || navigator.userAgent);
-  const link = document.createElement('a');
-  link.href = url;
-  link.target = '_blank';
-  link.rel = 'noopener noreferrer';
-  link.style.display = 'none';
-  document.body.appendChild(link);
-  link.dispatchEvent(new MouseEvent('click', {
-    bubbles: true, cancelable: true, ctrlKey: !isMac, metaKey: isMac
-  }));
-  link.remove();
-  window.focus();
 }
 
 function toggleExpand(articleId) {
@@ -1034,3 +1010,17 @@ function updateHeaderHeight() {
 }
 updateHeaderHeight();
 new ResizeObserver(updateHeaderHeight).observe(pageHeader);
+
+// Back-to-top control: only visible once the page is actually scrolled.
+const backToTopBtn = document.getElementById('back-to-top');
+function updateBackToTop() {
+  if (!backToTopBtn) return;
+  const show = window.scrollY > 200;
+  backToTopBtn.hidden = !show;
+  document.body.classList.toggle('show-back-to-top', show);
+}
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+window.addEventListener('scroll', updateBackToTop, { passive: true });
+updateBackToTop();

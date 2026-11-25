@@ -7,7 +7,7 @@
 <title>rss-master</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
 <meta name="theme-color" content="#2e3440">
-<link rel="stylesheet" href="style.css?v=20261125a">
+<link rel="stylesheet" href="style.css?v=20261125b">
 </head>
 <body>
 
@@ -160,6 +160,7 @@
   </div>
 </div>
 
+<button class="btn icon-btn" id="back-to-top" onclick="scrollToTop()" aria-label="Back to top" title="Back to top" hidden>↑</button>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <div id="library-modal-backdrop" onclick="if(event.target===this)closeModal(this.id)">
@@ -183,6 +184,6 @@
 </div>
 
 <script src="library.js?v=20261124a"></script>
-<script src="app.js?v=20261125a"></script>
+<script src="app.js?v=20261125b"></script>
 </body>
 </html>
