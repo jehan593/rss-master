@@ -585,9 +585,14 @@ async function refreshNow(opts) {
     console.error('refreshNow failed', e);
     if (!silent) showToast('Refresh failed. Try again later.');
   } finally {
-    if (btn) { btn.disabled = false; btn.setAttribute('aria-label', 'Refresh'); btn.removeAttribute('aria-busy'); }
-    // Allow server writes to settle, including read markers moved to new GUIDs.
-    setTimeout(() => { loadFeeds(); loadArticles(); loadReads(); }, 2000);
+    try {
+      // Allow server writes to settle, including read markers moved to new GUIDs.
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Keep the spinner running until the refreshed data is actually rendered.
+      await Promise.all([loadFeeds(), loadArticles(), loadReads()]);
+    } finally {
+      if (btn) { btn.disabled = false; btn.setAttribute('aria-label', 'Refresh'); btn.removeAttribute('aria-busy'); }
+    }
   }
 }
 
